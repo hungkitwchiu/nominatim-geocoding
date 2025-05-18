@@ -61,7 +61,7 @@ def main():
             else:
                 match_writer.writerow(row)
 
-    print("✅ Geocoding complete.")
+    print("✅ First pass complete")
 
 if __name__ == "__main__":
     main()
