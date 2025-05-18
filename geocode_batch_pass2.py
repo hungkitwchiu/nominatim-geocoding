@@ -208,7 +208,7 @@ def main():
                 executor.submit(process_address, address, viewbox_dict): address
                 for address in raw_addresses
             }
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Geocoding"):
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Pass 2 Geocoding"):
                 try:
                     result_row = future.result()
                     if result_row[2] is not None and result_row[3] is not None:
@@ -223,4 +223,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
