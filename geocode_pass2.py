@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 
 # Configuration
-INPUT_FILE = "geocoded_unmatched.csv"
+INPUT_FILE = "geocoded_unmatched.short.csv"
 VIEWBOX_FILE = "city_viewboxes.csv"
 OUTPUT_FILE = "geocoded_pass2.csv"
 NUM_WORKERS = 5
@@ -16,7 +16,7 @@ DB_PARAMS = {
     'dbname': 'osm_raw',
     'user': 'nominatim',
     'host': 'localhost',
-    'password': 'yourdatabasepassword'
+    'password': 'nominatim'
 }
 
 BUFFER_DISTANCE = 500  # meters
@@ -31,19 +31,30 @@ ABBREVIATION_MAP = {
     r'\bRD\b': 'Road',
     r'\bBL\b': 'Boulevard',
     r'\bCT\b': 'Court',
+    r'\bCL\b': 'Circle',
+    r'\bCIR\b': 'Circle',
+    r'\bC\b': 'Circle',
+    r'\bCTR\b': 'Center',
     r'\bLN\b': 'Lane',
     r'\bWY\b': 'Way',
     r'\bPL\b': 'Place',
     r'\bEX\b': 'Expressway',
     r'\bTER\b': 'Terrace',
-    r'\bCIR\b': 'Circle',
     r'\bSQ\b': 'Square',
     r'\bPKWY\b': 'Parkway',
-    r'\bHWY\b': 'Highway',
-    r'\bCTR\b': 'Center'
+    r'\bHWY\b': 'Highway'
+}
+
+DIRECTION_MAP = {
+    r'(^|[\s,&])N(?=\s)': r'\1North',
+    r'(^|[\s,&])E(?=\s)': r'\1East',
+    r'(^|[\s,&])S(?=\s)': r'\1South',
+    r'(^|[\s,&])W(?=\s)': r'\1West'
 }
 
 def expand_abbreviations(address):
+    for pattern, replacement in DIRECTION_MAP.items():
+        address = re.sub(pattern, replacement, address, flags=re.IGNORECASE)
     for abbrev, full in ABBREVIATION_MAP.items():
         address = re.sub(abbrev, full, address, flags=re.IGNORECASE)
     return address
@@ -208,7 +219,7 @@ def main():
                 executor.submit(process_address, address, viewbox_dict): address
                 for address in raw_addresses
             }
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Pass 2 Geocoding"):
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Geocoding"):
                 try:
                     result_row = future.result()
                     if result_row[2] is not None and result_row[3] is not None:
