@@ -3,9 +3,9 @@ import requests
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-INPUT_FILE = "address.csv"
+INPUT_FILE = "address.short.csv"
 OUTPUT_MATCHES = "geocoded_matches.csv"
-OUTPUT_UNMATCHED = "geocoded_unmatched.csv"
+OUTPUT_UNMATCHED = "geocoded_unmatched.short.csv"
 
 API_URL = "http://localhost/nominatim/search"
 MAX_WORKERS = 10
@@ -42,6 +42,9 @@ def main():
         futures = {executor.submit(geocode_address, addr): addr for addr in addresses}
         for future in tqdm(as_completed(futures), total=len(futures), desc="🚀 Pass 1 Geocoding"):
             results.append(future.result())
+            
+    matched_count = 0
+    total_count = len(results)
 
     # Write outputs
     with open(OUTPUT_MATCHES, 'w', newline='', encoding='utf-8') as mfile, \
@@ -60,8 +63,10 @@ def main():
                 unmatched_writer.writerow([original])
             else:
                 match_writer.writerow(row)
-
-    print("✅ First pass complete")
-
+                matched_count += 1
+    print(
+        f"✅ Pass 1 Complete. {matched_count} out of {total_count} addresses matched "
+        f"({matched_count / total_count * 100:.2f}%) {total_count - matched_count} to go."
+    )
 if __name__ == "__main__":
     main()
