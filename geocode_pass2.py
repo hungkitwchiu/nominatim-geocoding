@@ -241,8 +241,8 @@ def main():
 
     connection_pool.closeall()
     print(
-        f"✅ Finished! {matched_count} out of {total_count} addresses matched "
-        f"({matched_count / total_count * 100:.2f}%). {total_count - matched_count} unmatched saved."
+        f"✅ Pass 2 Complete. {matched_count} out of {total_count} addresses matched "
+        f"({matched_count / total_count * 100:.2f}%). {total_count - matched_count} unmatched."
     )
 
 if __name__ == "__main__":
