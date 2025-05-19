@@ -6,10 +6,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 
 # Configuration
-INPUT_FILE = "geocoded_unmatched.csv"
+#INPUT_FILE = "geocoded_unmatched.csv"
+INPUT_FILE = "CAM_address.csv"
 VIEWBOX_FILE = "city_viewboxes.csv"
-OUTPUT_FILE_MATCHES = "geocoded_pass2_matches.csv"
-OUTPUT_FILE_UNMATCHED = "geocoded_pass2_unmatched.csv"
+OUTPUT_FILE_MATCHES = "CAM_geocoded_pass2_matches.csv"
+OUTPUT_FILE_UNMATCHED = "CAM_geocoded_pass2_unmatched.csv"
 NUM_WORKERS = 5
 API_URL = "http://localhost/nominatim/search"
 
@@ -23,6 +24,7 @@ DB_PARAMS = {
 BUFFER_DISTANCE = 500
 connection_pool = None
 
+
 # --- ABBREVIATION AND DIRECTION DEFINITIONS ---
 DIRECTION_MAP = {
     r'(^|[\s,&])N(?=\s)': r'\1North',
@@ -32,36 +34,39 @@ DIRECTION_MAP = {
 }
 
 def load_cleanup_rules(csv_path):
-    cleanup_map = {}
+    cleanup_list = []
     with open(csv_path, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
             raw_match = row['match'].strip()
             replacement = row['replace']
-            if raw_match in ["St", "Mt"]:
+            if not raw_match:
+                continue
+
+            if raw_match in ['St', 'Mt']:
                 pattern = rf'\b{raw_match}\s+(?=[A-Z])'
             else:
                 pattern = fr'\b{raw_match}\b'
-            cleanup_map[pattern] = replacement
-    return cleanup_map
+
+            # Append tuple: (raw_match, regex_pattern, replacement)
+            cleanup_list.append((raw_match, pattern, replacement))
+    return cleanup_list
 
 NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
 
-def clean_name(address):
+def expand_abbreviations(address):
     parts = [p.strip() for p in address.split(',')]
-    base = ','.join(parts[:-2])  # Everything before city and state
-    suffix = ', ' + parts[-2] + ', ' + parts[-1]  # ", City, State"
+    base = ','.join(parts[:-2]) if len(parts) >= 3 else address
+    suffix = ', ' + parts[-2] + ', ' + parts[-1] if len(parts) >= 3 else ""
 
-    for pattern, replacement in NAME_CLEANUP_MAP.items():
+    for raw, pattern, replacement in NAME_CLEANUP_MAP:
+        if raw in ['C', 'H', 'P', 'L']:  # skip fuzzy suffixes
+            continue
         base = re.sub(pattern, replacement, base, flags=re.IGNORECASE)
 
-    # "St" to "Street"
     base = re.sub(r'\bSt(?=(\s&|&|,|$))', 'Street', base, flags=re.IGNORECASE)
-    
-    # Clean up white spaces and starting or trailing ampersand
-    cleaned = re.sub(r'\s+', ' ', base).strip() + suffix
-    cleaned = re.sub(r'^\s*&\s*|\s*&\s*$', '', cleaned)
-    return cleaned
+    base = re.sub(r'^\s*&\s*|\s*&\s*$', '', base)
+    return re.sub(r'\s+', ' ', base).strip() + suffix
 
 def expand_directions_only(address):
     expanded_address = address
@@ -127,12 +132,21 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_list):
         if not (exists1 and exists2): return None, None, f"'{street1}' or '{street2}' not in viewbox"
 
         cur.execute("""
-            SELECT ST_Y(geom), ST_X(geom) FROM (
-                SELECT ST_Intersection(w1.way, w2.way) AS geom FROM planet_osm_line w1, planet_osm_line w2
-                WHERE unaccent(w1.name) ILIKE unaccent(%s) AND unaccent(w2.name) ILIKE unaccent(%s) AND ST_Intersects(w1.way, w2.way)
-                AND ST_Intersects(w1.way, ST_MakeEnvelope(%s,%s,%s,%s,4326)) AND ST_Intersects(w2.way, ST_MakeEnvelope(%s,%s,%s,%s,4326))
-            ) AS sub WHERE ST_GeometryType(geom) = 'ST_Point' OR ST_IsValid(geom) LIMIT 1;
-        """, (f"%{street1}%", f"%{street2}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat, pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat))
+            SELECT ST_Y(pt) AS lat, ST_X(pt) AS lon
+            FROM (
+                SELECT (ST_Dump(ST_Intersection(w1.way, w2.way))).geom AS pt
+                FROM planet_osm_line w1, planet_osm_line w2
+                WHERE unaccent(w1.name) ILIKE unaccent(%s)
+                AND unaccent(w2.name) ILIKE unaccent(%s)
+                AND ST_Intersects(w1.way, w2.way)
+                AND ST_Intersects(w2.way, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
+            ) AS dumped
+            WHERE GeometryType(pt) = 'POINT'
+            LIMIT 1;
+        """, (
+            f"%{street1}%", f"%{street2}%",
+            pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat
+        ))
         row = cur.fetchone()
         if row and row[0] is not None: return row[0], row[1], f"PostGIS: Intersection {street1} & {street2}"
 
@@ -162,18 +176,15 @@ def _query_geocoders(address_variant, viewbox_coords_list, is_intersection_query
             street2 = parts[1].split(',')[0].strip()
             return try_postgis_intersection(street1, street2, conn, viewbox_coords_list)
         except Exception as e:
-            return None, None, f"Error in PostGIS query: {e}"
+            return None, None, f"Error in PostGIS: {e}"
         finally:
             if conn:
                 connection_pool.putconn(conn)
 
 def process_address(original_address, viewbox_dict):
-    address_pass1 = clean_name(original_address)
+    address_pass1 = expand_abbreviations(original_address)
     city_name = extract_city(address_pass1)
     viewbox_coords_list = viewbox_dict.get(city_name)
-
-    if viewbox_coords_list is None:
-        return [original_address, address_pass1, None, None, f"Error: No viewbox for city '{city_name}'"]
 
     is_intersection = '&' in address_pass1
     lat, lon, result_msg = _query_geocoders(address_pass1, viewbox_coords_list, is_intersection)
@@ -181,18 +192,32 @@ def process_address(original_address, viewbox_dict):
     if lat is not None and lon is not None:
         return [original_address, address_pass1, lat, lon, result_msg]
 
-    # Try expanding directions only if not matched initially and expansion is possible
-    if not check_if_directions_can_be_expanded(address_pass1):
-        return [original_address, address_pass1, None, None, result_msg]
+    # --- Direction expansion fallback ---
+    if check_if_directions_can_be_expanded(address_pass1):
+        address_pass2 = expand_directions_only(address_pass1)
+        if address_pass2 != address_pass1:
+            is_intersection = '&' in address_pass2
+            lat, lon, result_msg = _query_geocoders(address_pass2, viewbox_coords_list, is_intersection)
+            if lat is not None and lon is not None:
+                return [original_address, address_pass2, lat, lon, result_msg]
 
-    address_pass2 = expand_directions_only(address_pass1)
-    if address_pass2 == address_pass1:
-        return [original_address, address_pass1, None, None, result_msg]
+    # --- Fuzzy suffix fallback (e.g., C → Circle or Court) ---
+    # Apply only to base portion (before city,state)
+    base_part = address_pass1.split(',')[0]
+    match = re.search(r'\b([A-Z])\b(?=\s|,|$)', base_part)
+    if match:
+        suffix_letter = match.group(1)
+        for raw, pattern, replacement in NAME_CLEANUP_MAP:
+            if raw == suffix_letter:
+                fuzzy_variant = re.sub(pattern, replacement, address_pass1, flags=re.IGNORECASE)
+                if fuzzy_variant != address_pass1:
+                    is_intersection = '&' in fuzzy_variant
+                    lat, lon, result_msg = _query_geocoders(fuzzy_variant, viewbox_coords_list, is_intersection)
+                    if lat is not None and lon is not None:
+                        return [original_address, fuzzy_variant, lat, lon, result_msg]
 
-    is_intersection = '&' in address_pass2
-    lat, lon, result_msg_2 = _query_geocoders(address_pass2, viewbox_coords_list, is_intersection)
-
-    return [original_address, address_pass2, lat, lon, result_msg_2]
+    # --- No match found ---
+    return [original_address, address_pass1, None, None, result_msg]
 
 
 def main():
@@ -209,7 +234,7 @@ def main():
 
     cities_in_data = set()
     for addr in raw_addresses:
-        temp_expanded_for_city = clean_name(addr) 
+        temp_expanded_for_city = expand_abbreviations(addr) 
         city = extract_city(temp_expanded_for_city)
         if city:
             cities_in_data.add(city)
@@ -253,7 +278,7 @@ def main():
                 except Exception as e: 
                     variant_for_error_log = original_addr_for_error
                     try:
-                        variant_for_error_log = clean_name(original_addr_for_error)
+                        variant_for_error_log = expand_abbreviations(original_addr_for_error)
                     except Exception as e_expand:
                         print(f"Error trying to expand '{original_addr_for_error}' for error logging: {e_expand}")
                     
