@@ -3,9 +3,9 @@ import requests
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-INPUT_FILE = "address.short.csv"
+INPUT_FILE = "address.csv"
 OUTPUT_MATCHES = "geocoded_matches.csv"
-OUTPUT_UNMATCHED = "geocoded_unmatched.short.csv"
+OUTPUT_UNMATCHED = "geocoded_unmatched.csv"
 
 API_URL = "http://localhost/nominatim/search"
 MAX_WORKERS = 10

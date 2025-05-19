@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 
 # Configuration
-INPUT_FILE = "geocoded_unmatched.short.csv"
+INPUT_FILE = "geocoded_unmatched.csv"
 OUTPUT_MATCHED = "geocoded_pass2_matches.csv"
 OUTPUT_UNMATCHED = "geocoded_pass2_unmatched.csv"
 VIEWBOX_FILE = "city_viewboxes.csv"
@@ -35,7 +35,6 @@ ABBREVIATION_MAP = {
     r'\bCT\b': 'Court',
     r'\bCL\b': 'Circle',
     r'\bCIR\b': 'Circle',
-    r'\bC\b': 'Circle',
     r'\bCTR\b': 'Center',
     r'\bLN\b': 'Lane',
     r'\bWY\b': 'Way',
@@ -44,7 +43,9 @@ ABBREVIATION_MAP = {
     r'\bTER\b': 'Terrace',
     r'\bSQ\b': 'Square',
     r'\bPKWY\b': 'Parkway',
-    r'\bHWY\b': 'Highway'
+    r'\bPY\b': 'Parkway',
+    r'\bHWY\b': 'Highway',
+    r'\bHY\b': 'Highway'
 }
 
 DIRECTION_MAP = {
@@ -247,3 +248,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
