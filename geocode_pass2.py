@@ -8,7 +8,6 @@ import re
 # Configuration
 INPUT_FILE = "geocoded_unmatched.csv"
 VIEWBOX_FILE = "city_viewboxes.csv"
-# Define new output file names
 OUTPUT_FILE_MATCHES = "geocoded_pass2_matches.csv"
 OUTPUT_FILE_UNMATCHED = "geocoded_pass2_unmatched.csv"
 NUM_WORKERS = 5
@@ -40,38 +39,41 @@ def load_cleanup_rules(csv_path):
             raw_match = row['match'].strip()
             replacement = row['replace']
 
-            if not raw_match:
-                continue  # skip empty rows
-
-            # Contextual patterns
-            if raw_match.lower() == 'dead end &':
-                pattern = r'\bDead End\s*&\s*'
-            elif raw_match.lower() == '& dead end':
-                pattern = r'\s*&\s*Dead End\b'
-            elif raw_match == 'St':
-                pattern = r'\bSt\s+(?=[A-Z])'
-            elif raw_match == 'Mt':
-                pattern = r'\bMt\s+(?=[A-Z])'
+            if raw_match in ["St", "Mt"]:
+                pattern = rf'\b{raw_match}\s+(?=[A-Z])'
             else:
-                pattern = fr'\b{re.escape(raw_match)}\b'
-
+                pattern = fr'\b{raw_match}\b'
+                
             cleanup_map[pattern] = replacement
+
     return cleanup_map
 
 NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
 
 def clean_name(address):
-    # Apply all cleanup rules using regex
-    for pattern, replacement in NAME_CLEANUP_MAP.items():
-        address = re.sub(pattern, replacement, address, flags=re.IGNORECASE)
+    parts = [p.strip() for p in address.split(',')]
+    
+    if len(parts) < 3:
+        # If format is unexpected, fall back to whole-address cleaning
+        base = address
+        suffix = ""
+    else:
+        base = ','.join(parts[:-2])  # Everything before city and state
+        suffix = ', ' + parts[-2] + ', ' + parts[-1]  # ", City, State"
 
-    # Final rule: convert "St" to "Street" when followed by &, comma, or end of string
-    address = re.sub(r'\bSt\s*(?=(&|,|$))', 'Street', address, flags=re.IGNORECASE)
+    # Apply cleanup rules to the base only
+    for pattern, replacement in NAME_CLEANUP_MAP.items():
+        base = re.sub(pattern, replacement, base, flags=re.IGNORECASE)
+
+    # Final "St" to "Street" rule (before &, comma, or EOL)
+    base = re.sub(r'\bSt(?=(\s&|&|,|$))', 'Street', base, flags=re.IGNORECASE)
 
     # Normalize whitespace
-    address = re.sub(r'\s+', ' ', address).strip()
-    return address
-    
+    cleaned = re.sub(r'\s+', ' ', base).strip() + suffix
+    # remove starting or trailing ampersand
+    cleaned = re.sub(r'^\s*&\s*|\s*&\s*$', '', cleaned)
+    return cleaned
+
 def expand_directions_only(address):
     expanded_address = address
     for pattern, replacement in DIRECTION_MAP.items():
@@ -104,11 +106,8 @@ def extract_city(address):
     return parts[-2].strip().lower() if len(parts) >= 2 else None
 
 def parse_viewbox(viewbox_str):
-    try:
-        parts = list(map(float, viewbox_str.split(',')))
-        return parts if len(parts) == 4 else None
-    except Exception:
-        return None
+    parts = list(map(float, viewbox_str.split(',')))
+    return parts if len(parts) == 4 else None
 
 def try_nominatim_query(address_to_query, viewbox_coords_list):
     if viewbox_coords_list is None: return None, None, "Skipped: No viewbox for Nominatim"
@@ -146,7 +145,7 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_list):
             ) AS sub WHERE ST_GeometryType(geom) = 'ST_Point' OR ST_IsValid(geom) LIMIT 1;
         """, (f"%{street1}%", f"%{street2}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat, pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat))
         row = cur.fetchone()
-        if row and row[0] is not None: return row[0], row[1], f"PostGIS: Intersection {street1}&{street2}"
+        if row and row[0] is not None: return row[0], row[1], f"PostGIS: Intersection {street1} & {street2}"
 
         cur.execute("""
             SELECT ST_Y(ST_Centroid(ST_Union(w1.way))), ST_X(ST_Centroid(ST_Union(w1.way)))
@@ -156,7 +155,7 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_list):
             GROUP BY w1.osm_id, w2.osm_id LIMIT 1;
         """, (BUFFER_DISTANCE, f"%{street1}%", f"%{street2}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat, pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat))
         row = cur.fetchone()
-        if row and row[0] is not None: return row[0], row[1], f"PostGIS: Approx centroid {street1}&{street2}"
+        if row and row[0] is not None: return row[0], row[1], f"PostGIS: Approx centroid {street1} & {street2}"
     return None, None, "No PostGIS match"
 # --- END OF UTILITY AND QUERY FUNCTIONS ---
 
@@ -221,13 +220,6 @@ def main():
     except FileNotFoundError:
         print(f"\u274c Error: Input file {INPUT_FILE} not found.")
         return
-    except Exception as e:
-        print(f"\u274c Error reading input file: {e}")
-        return
-    
-    if not raw_addresses:
-        print("No addresses found in the input file. Exiting.")
-        return
 
     cities_in_data = set()
     for addr in raw_addresses:
@@ -241,12 +233,8 @@ def main():
         print(f"\u274c Error: Missing viewboxes for cities: {', '.join(missing_viewboxes)}")
         return
 
-    try:
-        connection_pool = pool.ThreadedConnectionPool(1, NUM_WORKERS, **DB_PARAMS)
-    except Exception as e:
-        print(f"\u274c Error initializing connection pool: {e}")
-        return
-
+    connection_pool = pool.ThreadedConnectionPool(1, NUM_WORKERS, **DB_PARAMS)
+    
     # MODIFICATION: Open two files
     with open(OUTPUT_FILE_MATCHES, 'w', newline='', encoding='utf-8') as matches_file, \
          open(OUTPUT_FILE_UNMATCHED, 'w', newline='', encoding='utf-8') as unmatched_file:
