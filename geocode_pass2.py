@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 
 # Configuration
-INPUT_FILE = "geocoded_unmatched.csv"
+INPUT_FILE = "geocoded_unmatched.short.csv"
 OUTPUT_MATCHED = "geocoded_pass2_matches.csv"
 OUTPUT_UNMATCHED = "geocoded_pass2_unmatched.csv"
 VIEWBOX_FILE = "city_viewboxes.csv"
@@ -75,17 +75,54 @@ def load_viewboxes(file_path):
 
 def extract_city(address):
     parts = address.split(',')
-    return parts[1].strip().lower() if len(parts) >= 2 else None
+    return parts[-2].strip().lower() if len(parts) >= 2 else None
 
 def parse_viewbox(viewbox_str):
     try:
+        # Expects "left,top,right,bottom" from CSV -> minLon,maxLat,maxLon,minLat
         parts = list(map(float, viewbox_str.split(',')))
-        return parts if len(parts) == 4 else None
+        if len(parts) == 4:
+            # parts are [left, top, right, bottom]
+            return parts
+        return None
     except Exception:
         return None
 
-def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
-    minLon, minLat, maxLon, maxLat = viewbox_coords
+def try_nominatim_query(cleaned_address, viewbox_coords_from_csv):
+    # viewbox_coords_from_csv is [left, top, right, bottom]
+    try:
+        left, top, right, bottom = viewbox_coords_from_csv
+        
+        # Nominatim expects: left,top,right,bottom
+        viewbox_str_for_api = f"{left},{top},{right},{bottom}"
+        
+        response = requests.get(API_URL, params={
+            "q": cleaned_address,
+            "format": "json",
+            "limit": 1,
+            "viewbox": viewbox_str_for_api,
+            "bounded": 1
+        })
+        response.raise_for_status()
+        data = response.json()
+        if data:
+            return float(data[0]["lat"]), float(data[0]["lon"]), "Single-point address match (bounded)"
+        else:
+            return None, None, "No match from Nominatim"
+    except Exception as e:
+        return None, None, f"Nominatim error: {e}"
+
+def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_from_csv):
+    # viewbox_coords_from_csv is [left, top, right, bottom]
+    left, top, right, bottom = viewbox_coords_from_csv
+
+    # For PostGIS ST_MakeEnvelope(xmin, ymin, xmax, ymax, srid)
+    # xmin = left; ymin = bottom; xmax = right; ymax = top
+    pg_min_lon = left
+    pg_min_lat = bottom # Use 'bottom' from CSV for min Latitude
+    pg_max_lon = right
+    pg_max_lat = top   # Use 'top' from CSV for max Latitude
+
     with db_conn.cursor() as cur:
         cur.execute("""
             SELECT
@@ -100,12 +137,12 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
                   AND ST_Intersects(way, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
               ) AS exists2;
         """, (
-            f"%{street1}%", minLon, minLat, maxLon, maxLat,
-            f"%{street2}%", minLon, minLat, maxLon, maxLat
+            f"%{street1}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat,
+            f"%{street2}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat
         ))
         exists1, exists2 = cur.fetchone()
         if not (exists1 and exists2):
-            return None, None, f"Skipped: '{street1}' or '{street2}' not found (fuzzy match failed)"
+            return None, None, f"Skipped: '{street1}' or '{street2}' not found within viewbox (fuzzy match failed)"
 
         cur.execute("""
             SELECT ST_Y(geom), ST_X(geom)
@@ -122,13 +159,14 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
             LIMIT 1;
         """, (
             f"%{street1}%", f"%{street2}%",
-            minLon, minLat, maxLon, maxLat,
-            minLon, minLat, maxLon, maxLat
+            pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat, # For w1
+            pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat  # For w2
         ))
         row = cur.fetchone()
         if row and row[0] is not None and row[1] is not None:
             return row[0], row[1], f"Intersection of {street1} & {street2}"
 
+        # Fallback DWithin logic (ensure it also uses corrected pg_ coordinates)
         cur.execute("""
             SELECT ST_Y(ST_Centroid(ST_Union(w1.way))),
                    ST_X(ST_Centroid(ST_Union(w1.way)))
@@ -138,35 +176,16 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
               AND ST_DWithin(w1.way, w2.way, %s)
               AND ST_Intersects(w1.way, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
               AND ST_Intersects(w2.way, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
+            LIMIT 1;  -- Added LIMIT 1 as ST_Union could be slow and you likely want one result
         """, (
             f"%{street1}%", f"%{street2}%", BUFFER_DISTANCE,
-            minLon, minLat, maxLon, maxLat,
-            minLon, minLat, maxLon, maxLat
+            pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat, # For w1
+            pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat  # For w2
         ))
         row = cur.fetchone()
         if row and row[0] is not None and row[1] is not None:
             return row[0], row[1], f"Approximate centroid of near-match for {street1} & {street2}"
     return None, None, "No match"
-
-def try_nominatim_query(cleaned_address, viewbox_coords):
-    try:
-        minLon, minLat, maxLon, maxLat = viewbox_coords
-        viewbox_str = f"{minLon},{maxLat},{maxLon},{minLat}"
-        response = requests.get(API_URL, params={
-            "q": cleaned_address,
-            "format": "json",
-            "limit": 1,
-            "viewbox": viewbox_str,
-            "bounded": 1
-        })
-        response.raise_for_status()
-        data = response.json()
-        if data:
-            return float(data[0]["lat"]), float(data[0]["lon"]), "Single-point address match (bounded)"
-        else:
-            return None, None, "No match from Nominatim"
-    except Exception as e:
-        return None, None, f"Nominatim error: {e}"
 
 def process_address(original_address, viewbox_dict):
     address = expand_abbreviations(original_address)
