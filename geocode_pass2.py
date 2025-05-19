@@ -18,7 +18,7 @@ DB_PARAMS = {
     'dbname': 'osm_raw',
     'user': 'nominatim',
     'host': 'localhost',
-    'password': 'nominatim'
+    'password': 'nominatim' # use your own password here
 }
 
 BUFFER_DISTANCE = 500  # meters
