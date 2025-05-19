@@ -38,39 +38,28 @@ def load_cleanup_rules(csv_path):
         for row in reader:
             raw_match = row['match'].strip()
             replacement = row['replace']
-
             if raw_match in ["St", "Mt"]:
                 pattern = rf'\b{raw_match}\s+(?=[A-Z])'
             else:
                 pattern = fr'\b{raw_match}\b'
-                
             cleanup_map[pattern] = replacement
-
     return cleanup_map
 
 NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
 
 def clean_name(address):
     parts = [p.strip() for p in address.split(',')]
-    
-    if len(parts) < 3:
-        # If format is unexpected, fall back to whole-address cleaning
-        base = address
-        suffix = ""
-    else:
-        base = ','.join(parts[:-2])  # Everything before city and state
-        suffix = ', ' + parts[-2] + ', ' + parts[-1]  # ", City, State"
+    base = ','.join(parts[:-2])  # Everything before city and state
+    suffix = ', ' + parts[-2] + ', ' + parts[-1]  # ", City, State"
 
-    # Apply cleanup rules to the base only
     for pattern, replacement in NAME_CLEANUP_MAP.items():
         base = re.sub(pattern, replacement, base, flags=re.IGNORECASE)
 
-    # Final "St" to "Street" rule (before &, comma, or EOL)
+    # "St" to "Street"
     base = re.sub(r'\bSt(?=(\s&|&|,|$))', 'Street', base, flags=re.IGNORECASE)
-
-    # Normalize whitespace
+    
+    # Clean up white spaces and starting or trailing ampersand
     cleaned = re.sub(r'\s+', ' ', base).strip() + suffix
-    # remove starting or trailing ampersand
     cleaned = re.sub(r'^\s*&\s*|\s*&\s*$', '', cleaned)
     return cleaned
 
@@ -109,7 +98,7 @@ def parse_viewbox(viewbox_str):
     parts = list(map(float, viewbox_str.split(',')))
     return parts if len(parts) == 4 else None
 
-def try_nominatim_query(address_to_query, viewbox_coords_list):
+def try_nominatim(address_to_query, viewbox_coords_list):
     if viewbox_coords_list is None: return None, None, "Skipped: No viewbox for Nominatim"
     try:
         left, top, right, bottom = viewbox_coords_list
@@ -161,7 +150,7 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_list):
 
 def _query_geocoders(address_variant, viewbox_coords_list, is_intersection_query):
     if not is_intersection_query:
-        return try_nominatim_query(address_variant, viewbox_coords_list)
+        return try_nominatim(address_variant, viewbox_coords_list)
     else:
         conn = None
         try:
@@ -210,16 +199,13 @@ def main():
     global connection_pool
     viewbox_dict = load_viewboxes(VIEWBOX_FILE)
     raw_addresses = []
-    try:
-        with open(INPUT_FILE, newline='', encoding='utf-8') as infile:
-            reader = csv.DictReader(infile)
-            if "address" not in reader.fieldnames:
-                print(f"\u274c Error: 'address' column not found in {INPUT_FILE}")
-                return
-            raw_addresses = [row["address"] for row in reader]
-    except FileNotFoundError:
-        print(f"\u274c Error: Input file {INPUT_FILE} not found.")
-        return
+
+    with open(INPUT_FILE, newline='', encoding='utf-8') as infile:
+        reader = csv.DictReader(infile)
+        if "address" not in reader.fieldnames:
+            print(f"\u274c Error: 'address' column not found in {INPUT_FILE}")
+            return
+        raw_addresses = [row["address"] for row in reader]
 
     cities_in_data = set()
     for addr in raw_addresses:
@@ -278,14 +264,10 @@ def main():
     if connection_pool:
         connection_pool.closeall()
     
-    if total_count > 0:
-        print(f"✅ Finished! Results saved.")
-        print(f"   Matched addresses: {matched_count} (saved to {OUTPUT_FILE_MATCHES})")
-        print(f"   Unmatched/Error addresses: {unmatched_count} (saved to {OUTPUT_FILE_UNMATCHED})")
-        print(f"   Total processed: {total_count}")
-        print(f"   Match rate: {matched_count / total_count * 100:.2f}%")
-    else:
-        print(f"✅ Finished! No addresses were processed.")
+    print(f"✅ Finished! Results saved.")
+    print(f"   Matched addresses: {matched_count} (saved to {OUTPUT_FILE_MATCHES})")
+    print(f"   Unmatched addresses: {unmatched_count} (saved to {OUTPUT_FILE_UNMATCHED})")
+    print(f"   Total processed: {total_count}; Match rate: {matched_count / total_count * 100:.2f}%")
 
 if __name__ == "__main__":
     main()
