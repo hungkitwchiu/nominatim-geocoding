@@ -1,0 +1,28 @@
+match,replace,notes
+DR,Drive,Common suffix
+D,Drive,Abbreviation of Drive
+AV,Avenue,Common suffix
+AVE,Avenue,Alternative abbreviation
+RD,Road,Common suffix
+BL,Boulevard,Common suffix
+BLVD,Boulevard,Alternative abbreviation
+CT,Court,Common suffix
+CL,Circle,Common suffix
+CIR,Circle,Alternative abbreviation
+CTR,Center,Common suffix
+LN,Lane,Common suffix
+WY,Way,Common suffix
+PL,Place,Common suffix
+EX,Expressway,Common suffix
+EXPY,Expressway,Alternative abbreviation
+TER,Terrace,Common suffix
+SQ,Square,Common suffix
+PKWY,Parkway,Common suffix
+PKY,Parkway,Alternative abbreviation
+PY,Parkway,Alternative abbreviation
+HWY,Highway,Common suffix
+HY,Highway,Alternative abbreviation
+St,Saint ,"Convert to 'Saint' before proper name (must end with space)"
+Mt,Mount ,"Convert to 'Mount' before proper name (must end with space)"
+Dead End &,,San Jose
+& Dead End,,San Jose

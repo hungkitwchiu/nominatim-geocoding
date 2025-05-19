@@ -6,11 +6,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 
 # Configuration
-INPUT_FILE = "geocoded_unmatched.short.csv"
-OUTPUT_MATCHED = "geocoded_pass2_matches.csv"
-OUTPUT_UNMATCHED = "geocoded_pass2_unmatched.csv"
+INPUT_FILE = "geocoded_unmatched.csv"
 VIEWBOX_FILE = "city_viewboxes.csv"
-
+# Define new output file names
+OUTPUT_FILE_MATCHES = "geocoded_pass2_matches.csv"
+OUTPUT_FILE_UNMATCHED = "geocoded_pass2_unmatched.csv"
 NUM_WORKERS = 5
 API_URL = "http://localhost/nominatim/search"
 
@@ -18,36 +18,13 @@ DB_PARAMS = {
     'dbname': 'osm_raw',
     'user': 'nominatim',
     'host': 'localhost',
-    'password': 'nominatim' # use your own database password here
+    'password': 'nominatim'
 }
 
-BUFFER_DISTANCE = 500  # meters
+BUFFER_DISTANCE = 500
 connection_pool = None
 
-ABBREVIATION_MAP = {
-    r'\bST\b': 'Street',
-    r'\bDR\b': 'Drive',
-    r'\bD\b': 'Drive',
-    r'\bAV\b': 'Avenue',
-    r'\bAVE\b': 'Avenue',
-    r'\bRD\b': 'Road',
-    r'\bBL\b': 'Boulevard',
-    r'\bCT\b': 'Court',
-    r'\bCL\b': 'Circle',
-    r'\bCIR\b': 'Circle',
-    r'\bCTR\b': 'Center',
-    r'\bLN\b': 'Lane',
-    r'\bWY\b': 'Way',
-    r'\bPL\b': 'Place',
-    r'\bEX\b': 'Expressway',
-    r'\bTER\b': 'Terrace',
-    r'\bSQ\b': 'Square',
-    r'\bPKWY\b': 'Parkway',
-    r'\bPY\b': 'Parkway',
-    r'\bHWY\b': 'Highway',
-    r'\bHY\b': 'Highway'
-}
-
+# --- ABBREVIATION AND DIRECTION DEFINITIONS ---
 DIRECTION_MAP = {
     r'(^|[\s,&])N(?=\s)': r'\1North',
     r'(^|[\s,&])E(?=\s)': r'\1East',
@@ -55,22 +32,71 @@ DIRECTION_MAP = {
     r'(^|[\s,&])W(?=\s)': r'\1West'
 }
 
-def expand_abbreviations(address):
-    for pattern, replacement in DIRECTION_MAP.items():
-        address = re.sub(pattern, replacement, address, flags=re.IGNORECASE)
-    for abbrev, full in ABBREVIATION_MAP.items():
-        address = re.sub(abbrev, full, address, flags=re.IGNORECASE)
-    return address
+def load_cleanup_rules(csv_path):
+    cleanup_map = {}
+    with open(csv_path, newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            raw_match = row['match'].strip()
+            replacement = row['replace']
 
+            if not raw_match:
+                continue  # skip empty rows
+
+            # Contextual patterns
+            if raw_match.lower() == 'dead end &':
+                pattern = r'\bDead End\s*&\s*'
+            elif raw_match.lower() == '& dead end':
+                pattern = r'\s*&\s*Dead End\b'
+            elif raw_match == 'St':
+                pattern = r'\bSt\s+(?=[A-Z])'
+            elif raw_match == 'Mt':
+                pattern = r'\bMt\s+(?=[A-Z])'
+            else:
+                pattern = fr'\b{re.escape(raw_match)}\b'
+
+            cleanup_map[pattern] = replacement
+    return cleanup_map
+
+NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
+
+def clean_name(address):
+    # Apply all cleanup rules using regex
+    for pattern, replacement in NAME_CLEANUP_MAP.items():
+        address = re.sub(pattern, replacement, address, flags=re.IGNORECASE)
+
+    # Final rule: convert "St" to "Street" when followed by &, comma, or end of string
+    address = re.sub(r'\bSt\s*(?=(&|,|$))', 'Street', address, flags=re.IGNORECASE)
+
+    # Normalize whitespace
+    address = re.sub(r'\s+', ' ', address).strip()
+    return address
+    
+def expand_directions_only(address):
+    expanded_address = address
+    for pattern, replacement in DIRECTION_MAP.items():
+        expanded_address = re.sub(pattern, replacement, expanded_address, flags=re.IGNORECASE)
+    expanded_address = re.sub(r'\s+', ' ', expanded_address).strip()
+    return expanded_address
+
+def check_if_directions_can_be_expanded(address_text):
+    for pattern in DIRECTION_MAP.keys():
+        if re.search(pattern, address_text, flags=re.IGNORECASE):
+            return True
+    return False
+# --- END OF ABBREVIATION AND DIRECTION DEFINITIONS ---
+
+# --- UTILITY AND QUERY FUNCTIONS ---
 def load_viewboxes(file_path):
     viewbox_dict = {}
     with open(file_path, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            viewbox = row['viewbox']
-            if parse_viewbox(viewbox) is None:
-                raise ValueError(f"Malformed viewbox for city '{row['city']}'")
-            viewbox_dict[row['city'].lower()] = viewbox
+            viewbox_str = row['viewbox']
+            parsed_coords = parse_viewbox(viewbox_str)
+            if parsed_coords is None:
+                raise ValueError(f"Malformed viewbox for city '{row['city']}': '{viewbox_str}'")
+            viewbox_dict[row['city'].lower()] = parsed_coords
     return viewbox_dict
 
 def extract_city(address):
@@ -79,192 +105,199 @@ def extract_city(address):
 
 def parse_viewbox(viewbox_str):
     try:
-        # Expects "left,top,right,bottom" from CSV -> minLon,maxLat,maxLon,minLat
         parts = list(map(float, viewbox_str.split(',')))
-        if len(parts) == 4:
-            # parts are [left, top, right, bottom]
-            return parts
-        return None
+        return parts if len(parts) == 4 else None
     except Exception:
         return None
 
-def try_nominatim_query(cleaned_address, viewbox_coords_from_csv):
-    # viewbox_coords_from_csv is [left, top, right, bottom]
+def try_nominatim_query(address_to_query, viewbox_coords_list):
+    if viewbox_coords_list is None: return None, None, "Skipped: No viewbox for Nominatim"
     try:
-        left, top, right, bottom = viewbox_coords_from_csv
-        
-        # Nominatim expects: left,top,right,bottom
+        left, top, right, bottom = viewbox_coords_list
         viewbox_str_for_api = f"{left},{top},{right},{bottom}"
-        
         response = requests.get(API_URL, params={
-            "q": cleaned_address,
-            "format": "json",
-            "limit": 1,
-            "viewbox": viewbox_str_for_api,
-            "bounded": 1
+            "q": address_to_query, "format": "json", "limit": 1,
+            "viewbox": viewbox_str_for_api, "bounded": 1
         })
         response.raise_for_status()
         data = response.json()
-        if data:
-            return float(data[0]["lat"]), float(data[0]["lon"]), "Single-point address match (bounded)"
-        else:
-            return None, None, "No match from Nominatim"
+        return (float(data[0]["lat"]), float(data[0]["lon"]), "Nominatim match") if data else (None, None, "No Nominatim match")
     except Exception as e:
         return None, None, f"Nominatim error: {e}"
 
-def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_from_csv):
-    # viewbox_coords_from_csv is [left, top, right, bottom]
-    left, top, right, bottom = viewbox_coords_from_csv
-
-    # For PostGIS ST_MakeEnvelope(xmin, ymin, xmax, ymax, srid)
-    # xmin = left; ymin = bottom; xmax = right; ymax = top
-    pg_min_lon = left
-    pg_min_lat = bottom # Use 'bottom' from CSV for min Latitude
-    pg_max_lon = right
-    pg_max_lat = top   # Use 'top' from CSV for max Latitude
+def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_list):
+    if viewbox_coords_list is None: return None, None, "Skipped: No viewbox for PostGIS"
+    left, top, right, bottom = viewbox_coords_list
+    pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat = left, bottom, right, top
 
     with db_conn.cursor() as cur:
         cur.execute("""
-            SELECT
-              EXISTS(
-                SELECT 1 FROM planet_osm_line
-                WHERE unaccent(name) ILIKE unaccent(%s)
-                  AND ST_Intersects(way, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
-              ) AS exists1,
-              EXISTS(
-                SELECT 1 FROM planet_osm_line
-                WHERE unaccent(name) ILIKE unaccent(%s)
-                  AND ST_Intersects(way, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
-              ) AS exists2;
-        """, (
-            f"%{street1}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat,
-            f"%{street2}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat
-        ))
+            SELECT EXISTS(SELECT 1 FROM planet_osm_line WHERE unaccent(name) ILIKE unaccent(%s) AND ST_Intersects(way, ST_MakeEnvelope(%s,%s,%s,%s,4326))) AS e1,
+                   EXISTS(SELECT 1 FROM planet_osm_line WHERE unaccent(name) ILIKE unaccent(%s) AND ST_Intersects(way, ST_MakeEnvelope(%s,%s,%s,%s,4326))) AS e2;
+        """, (f"%{street1}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat, f"%{street2}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat))
         exists1, exists2 = cur.fetchone()
-        if not (exists1 and exists2):
-            return None, None, f"Skipped: '{street1}' or '{street2}' not found within viewbox (fuzzy match failed)"
+        if not (exists1 and exists2): return None, None, f"'{street1}' or '{street2}' not in viewbox"
 
         cur.execute("""
-            SELECT ST_Y(geom), ST_X(geom)
-            FROM (
-                SELECT ST_Intersection(w1.way, w2.way) AS geom
-                FROM planet_osm_line w1, planet_osm_line w2
-                WHERE unaccent(w1.name) ILIKE unaccent(%s)
-                  AND unaccent(w2.name) ILIKE unaccent(%s)
-                  AND ST_Intersects(w1.way, w2.way)
-                  AND ST_Intersects(w1.way, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
-                  AND ST_Intersects(w2.way, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
-            ) AS sub
-            WHERE ST_IsValid(geom)
-            LIMIT 1;
-        """, (
-            f"%{street1}%", f"%{street2}%",
-            pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat, # For w1
-            pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat  # For w2
-        ))
+            SELECT ST_Y(geom), ST_X(geom) FROM (
+                SELECT ST_Intersection(w1.way, w2.way) AS geom FROM planet_osm_line w1, planet_osm_line w2
+                WHERE unaccent(w1.name) ILIKE unaccent(%s) AND unaccent(w2.name) ILIKE unaccent(%s) AND ST_Intersects(w1.way, w2.way)
+                AND ST_Intersects(w1.way, ST_MakeEnvelope(%s,%s,%s,%s,4326)) AND ST_Intersects(w2.way, ST_MakeEnvelope(%s,%s,%s,%s,4326))
+            ) AS sub WHERE ST_GeometryType(geom) = 'ST_Point' OR ST_IsValid(geom) LIMIT 1;
+        """, (f"%{street1}%", f"%{street2}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat, pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat))
         row = cur.fetchone()
-        if row and row[0] is not None and row[1] is not None:
-            return row[0], row[1], f"Intersection of {street1} & {street2}"
+        if row and row[0] is not None: return row[0], row[1], f"PostGIS: Intersection {street1}&{street2}"
 
-        # Fallback DWithin logic (ensure it also uses corrected pg_ coordinates)
         cur.execute("""
-            SELECT ST_Y(ST_Centroid(ST_Union(w1.way))),
-                   ST_X(ST_Centroid(ST_Union(w1.way)))
-            FROM planet_osm_line w1, planet_osm_line w2
-            WHERE unaccent(w1.name) ILIKE unaccent(%s)
-              AND unaccent(w2.name) ILIKE unaccent(%s)
-              AND ST_DWithin(w1.way, w2.way, %s)
-              AND ST_Intersects(w1.way, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
-              AND ST_Intersects(w2.way, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
-            LIMIT 1;  -- Added LIMIT 1 as ST_Union could be slow and you likely want one result
-        """, (
-            f"%{street1}%", f"%{street2}%", BUFFER_DISTANCE,
-            pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat, # For w1
-            pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat  # For w2
-        ))
+            SELECT ST_Y(ST_Centroid(ST_Union(w1.way))), ST_X(ST_Centroid(ST_Union(w1.way)))
+            FROM planet_osm_line w1 JOIN planet_osm_line w2 ON ST_DWithin(w1.way, w2.way, %s)
+            WHERE unaccent(w1.name) ILIKE unaccent(%s) AND unaccent(w2.name) ILIKE unaccent(%s)
+            AND ST_Intersects(w1.way, ST_MakeEnvelope(%s,%s,%s,%s,4326)) AND ST_Intersects(w2.way, ST_MakeEnvelope(%s,%s,%s,%s,4326))
+            GROUP BY w1.osm_id, w2.osm_id LIMIT 1;
+        """, (BUFFER_DISTANCE, f"%{street1}%", f"%{street2}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat, pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat))
         row = cur.fetchone()
-        if row and row[0] is not None and row[1] is not None:
-            return row[0], row[1], f"Approximate centroid of near-match for {street1} & {street2}"
-    return None, None, "No match"
+        if row and row[0] is not None: return row[0], row[1], f"PostGIS: Approx centroid {street1}&{street2}"
+    return None, None, "No PostGIS match"
+# --- END OF UTILITY AND QUERY FUNCTIONS ---
+
+def _query_geocoders(address_variant, viewbox_coords_list, is_intersection_query):
+    if not is_intersection_query:
+        return try_nominatim_query(address_variant, viewbox_coords_list)
+    else:
+        conn = None
+        try:
+            conn = connection_pool.getconn()
+            parts = address_variant.split('&')
+            if len(parts) < 2:
+                return None, None, f"Error: Malformed intersection '{address_variant}'"
+            street1 = parts[0].split(',')[0].strip()
+            street2 = parts[1].split(',')[0].strip()
+            return try_postgis_intersection(street1, street2, conn, viewbox_coords_list)
+        except Exception as e:
+            return None, None, f"Error in PostGIS query: {e}"
+        finally:
+            if conn:
+                connection_pool.putconn(conn)
 
 def process_address(original_address, viewbox_dict):
-    address = expand_abbreviations(original_address)
-    city = extract_city(address)
-    viewbox_str = viewbox_dict.get(city)
-    viewbox_coords = parse_viewbox(viewbox_str)
-    if viewbox_coords is None:
-        return [original_address, address, None, None, f"Error: malformed viewbox for city '{city}'"]
+    address_pass1 = clean_name(original_address)
+    city_name = extract_city(address_pass1)
+    viewbox_coords_list = viewbox_dict.get(city_name)
 
-    if '&' not in address:
-        lat, lon, result = try_nominatim_query(address, viewbox_coords)
-        return [original_address, address, lat, lon, result]
+    if viewbox_coords_list is None:
+        return [original_address, address_pass1, None, None, f"Error: No viewbox for city '{city_name}'"]
 
-    conn = None
-    try:
-        conn = connection_pool.getconn()
-        parts = address.split('&')
-        street1 = parts[0].split(',')[0].strip()
-        street2 = parts[1].split(',')[0].strip()
-        lat, lon, result = try_postgis_intersection(street1, street2, conn, viewbox_coords)
-        return [original_address, address, lat, lon, result]
-    except Exception as e:
-        return [original_address, address, None, None, f"Error: {e}"]
-    finally:
-        if conn:
-            connection_pool.putconn(conn)
+    is_intersection = '&' in address_pass1
+    lat, lon, result_msg = _query_geocoders(address_pass1, viewbox_coords_list, is_intersection)
+
+    if lat is not None and lon is not None:
+        return [original_address, address_pass1, lat, lon, result_msg]
+
+    # Try expanding directions only if not matched initially and expansion is possible
+    if not check_if_directions_can_be_expanded(address_pass1):
+        return [original_address, address_pass1, None, None, result_msg]
+
+    address_pass2 = expand_directions_only(address_pass1)
+    if address_pass2 == address_pass1:
+        return [original_address, address_pass1, None, None, result_msg]
+
+    is_intersection = '&' in address_pass2
+    lat, lon, result_msg_2 = _query_geocoders(address_pass2, viewbox_coords_list, is_intersection)
+
+    return [original_address, address_pass2, lat, lon, result_msg_2]
+
 
 def main():
     global connection_pool
     viewbox_dict = load_viewboxes(VIEWBOX_FILE)
-
-    with open(INPUT_FILE, newline='', encoding='utf-8') as infile:
-        reader = csv.DictReader(infile)
-        raw_addresses = [row["address"] for row in reader]
-
-    cities = {extract_city(expand_abbreviations(addr)) for addr in raw_addresses}
-    missing = sorted(c for c in cities if c not in viewbox_dict)
-    if missing:
-        print(f"\u274c Error: Missing viewboxes for cities: {', '.join(missing)}")
+    raw_addresses = []
+    try:
+        with open(INPUT_FILE, newline='', encoding='utf-8') as infile:
+            reader = csv.DictReader(infile)
+            if "address" not in reader.fieldnames:
+                print(f"\u274c Error: 'address' column not found in {INPUT_FILE}")
+                return
+            raw_addresses = [row["address"] for row in reader]
+    except FileNotFoundError:
+        print(f"\u274c Error: Input file {INPUT_FILE} not found.")
+        return
+    except Exception as e:
+        print(f"\u274c Error reading input file: {e}")
+        return
+    
+    if not raw_addresses:
+        print("No addresses found in the input file. Exiting.")
         return
 
-    connection_pool = pool.ThreadedConnectionPool(1, NUM_WORKERS, **DB_PARAMS)
+    cities_in_data = set()
+    for addr in raw_addresses:
+        temp_expanded_for_city = clean_name(addr) 
+        city = extract_city(temp_expanded_for_city)
+        if city:
+            cities_in_data.add(city)
+    
+    missing_viewboxes = sorted(c for c in cities_in_data if c not in viewbox_dict)
+    if missing_viewboxes:
+        print(f"\u274c Error: Missing viewboxes for cities: {', '.join(missing_viewboxes)}")
+        return
 
-    with open(OUTPUT_MATCHED, 'w', newline='', encoding='utf-8') as matched_file, \
-         open(OUTPUT_UNMATCHED, 'w', newline='', encoding='utf-8') as unmatched_file:
+    try:
+        connection_pool = pool.ThreadedConnectionPool(1, NUM_WORKERS, **DB_PARAMS)
+    except Exception as e:
+        print(f"\u274c Error initializing connection pool: {e}")
+        return
 
-        match_writer = csv.writer(matched_file)
-        unmatch_writer = csv.writer(unmatched_file)
-
-        headers = ["original_address", "used_variant", "lat", "lon", "result"]
-        match_writer.writerow(headers)
-        unmatch_writer.writerow(headers)
-
+    # MODIFICATION: Open two files
+    with open(OUTPUT_FILE_MATCHES, 'w', newline='', encoding='utf-8') as matches_file, \
+         open(OUTPUT_FILE_UNMATCHED, 'w', newline='', encoding='utf-8') as unmatched_file:
+        
+        matches_writer = csv.writer(matches_file)
+        unmatched_writer = csv.writer(unmatched_file)
+        
+        header = ["original_address", "used_variant", "lat", "lon", "result"]
+        matches_writer.writerow(header)
+        unmatched_writer.writerow(header)
+        
         matched_count = 0
+        unmatched_count = 0 # Keep track of unmatched for summary
         total_count = len(raw_addresses)
 
         with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
-            futures = {
-                executor.submit(process_address, address, viewbox_dict): address
-                for address in raw_addresses
-            }
+            futures = {executor.submit(process_address, address, viewbox_dict): address for address in raw_addresses}
             for future in tqdm(as_completed(futures), total=len(futures), desc="Geocoding"):
+                original_addr_for_error = futures[future]
                 try:
-                    result_row = future.result()
+                    result_row = future.result() # process_address always returns a 5-element list
+                    
+                    # Check if lat and lon (indices 2 and 3) are not None
                     if result_row[2] is not None and result_row[3] is not None:
-                        match_writer.writerow(result_row)
+                        matches_writer.writerow(result_row)
                         matched_count += 1
                     else:
-                        unmatch_writer.writerow(result_row)
-                except Exception as e:
-                    addr = futures[future]
-                    unmatch_writer.writerow([addr, expand_abbreviations(addr), None, None, f"Error: {e}"])
-
-    connection_pool.closeall()
-    print(
-        f"✅ Pass 2 Complete. {matched_count} out of {total_count} addresses matched "
-        f"({matched_count / total_count * 100:.2f}%). {total_count - matched_count} unmatched."
-    )
+                        unmatched_writer.writerow(result_row)
+                        unmatched_count += 1
+                except Exception as e: 
+                    variant_for_error_log = original_addr_for_error
+                    try:
+                        variant_for_error_log = clean_name(original_addr_for_error)
+                    except Exception as e_expand:
+                        print(f"Error trying to expand '{original_addr_for_error}' for error logging: {e_expand}")
+                    
+                    error_row = [original_addr_for_error, variant_for_error_log, None, None, f"Critical Error in future: {e}"]
+                    unmatched_writer.writerow(error_row)
+                    unmatched_count +=1 # Count critical errors as unmatched
+    
+    if connection_pool:
+        connection_pool.closeall()
+    
+    if total_count > 0:
+        print(f"✅ Finished! Results saved.")
+        print(f"   Matched addresses: {matched_count} (saved to {OUTPUT_FILE_MATCHES})")
+        print(f"   Unmatched/Error addresses: {unmatched_count} (saved to {OUTPUT_FILE_UNMATCHED})")
+        print(f"   Total processed: {total_count}")
+        print(f"   Match rate: {matched_count / total_count * 100:.2f}%")
+    else:
+        print(f"✅ Finished! No addresses were processed.")
 
 if __name__ == "__main__":
     main()
-
