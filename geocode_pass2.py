@@ -7,8 +7,10 @@ import re
 
 # Configuration
 INPUT_FILE = "geocoded_unmatched.short.csv"
+OUTPUT_MATCHED = "geocoded_pass2_matches.csv"
+OUTPUT_UNMATCHED = "geocoded_pass2_unmatched.csv"
 VIEWBOX_FILE = "city_viewboxes.csv"
-OUTPUT_FILE = "geocoded_pass2.csv"
+
 NUM_WORKERS = 5
 API_URL = "http://localhost/nominatim/search"
 
@@ -207,9 +209,15 @@ def main():
 
     connection_pool = pool.ThreadedConnectionPool(1, NUM_WORKERS, **DB_PARAMS)
 
-    with open(OUTPUT_FILE, 'w', newline='', encoding='utf-8') as outfile:
-        writer = csv.writer(outfile)
-        writer.writerow(["original_address", "used_variant", "lat", "lon", "result"])
+    with open(OUTPUT_MATCHED, 'w', newline='', encoding='utf-8') as matched_file, \
+         open(OUTPUT_UNMATCHED, 'w', newline='', encoding='utf-8') as unmatched_file:
+
+        match_writer = csv.writer(matched_file)
+        unmatch_writer = csv.writer(unmatched_file)
+
+        headers = ["original_address", "used_variant", "lat", "lon", "result"]
+        match_writer.writerow(headers)
+        unmatch_writer.writerow(headers)
 
         matched_count = 0
         total_count = len(raw_addresses)
@@ -223,14 +231,19 @@ def main():
                 try:
                     result_row = future.result()
                     if result_row[2] is not None and result_row[3] is not None:
+                        match_writer.writerow(result_row)
                         matched_count += 1
-                    writer.writerow(result_row)
+                    else:
+                        unmatch_writer.writerow(result_row)
                 except Exception as e:
                     addr = futures[future]
-                    writer.writerow([addr, expand_abbreviations(addr), None, None, f"Error: {e}"])
+                    unmatch_writer.writerow([addr, expand_abbreviations(addr), None, None, f"Error: {e}"])
 
     connection_pool.closeall()
-    print(f"✅ Finished! Results saved. {matched_count} out of {total_count} addresses matched ({matched_count / total_count * 100:.2f}%)")
+    print(
+        f"✅ Finished! {matched_count} out of {total_count} addresses matched "
+        f"({matched_count / total_count * 100:.2f}%). {total_count - matched_count} unmatched saved."
+    )
 
 if __name__ == "__main__":
     main()
