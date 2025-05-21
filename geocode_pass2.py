@@ -11,7 +11,7 @@ INPUT_FILE = "CAM_address.csv"
 VIEWBOX_FILE = "city_viewboxes.csv"
 OUTPUT_FILE_MATCHES = "CAM_geocoded_pass2_matches.csv"
 OUTPUT_FILE_UNMATCHED = "CAM_geocoded_pass2_unmatched.csv"
-NUM_WORKERS = 5
+MAX_WORKERS = 10
 API_URL = "http://localhost/nominatim/search"
 
 DB_PARAMS = {
@@ -261,7 +261,7 @@ def main():
         unmatched_count = 0
         total_count = len(raw_addresses)
 
-        with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             futures = {executor.submit(process_address, address, viewbox_dict): address for address in raw_addresses}
             for future in tqdm(as_completed(futures), total=len(futures), desc="Geocoding"):
                 original_addr_for_error = futures[future]
