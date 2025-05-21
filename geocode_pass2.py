@@ -234,8 +234,7 @@ def main():
 
     cities_in_data = set()
     for addr in raw_addresses:
-        temp_expanded_for_city = expand_abbreviations(addr) 
-        city = extract_city(temp_expanded_for_city)
+        city = extract_city(addr)
         if city:
             cities_in_data.add(city)
     
@@ -276,12 +275,7 @@ def main():
                         unmatched_writer.writerow(result_row)
                         unmatched_count += 1
                 except Exception as e: 
-                    variant_for_error_log = original_addr_for_error
-                    try:
-                        variant_for_error_log = expand_abbreviations(original_addr_for_error)
-                    except Exception as e_expand:
-                        print(f"Error trying to expand '{original_addr_for_error}' for error logging: {e_expand}")
-                    
+                    variant_for_error_log = expand_abbreviations(original_addr_for_error)                    
                     error_row = [original_addr_for_error, variant_for_error_log, None, None, f"Critical Error in future: {e}"]
                     unmatched_writer.writerow(error_row)
                     unmatched_count +=1 # Count critical errors as unmatched
