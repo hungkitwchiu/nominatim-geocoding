@@ -33,6 +33,8 @@ DIRECTION_MAP = {
     r'(^|[\s,&])W(?=\s)': r'\1West'
 }
 
+FUZZY_SUFFIXES = ['C', 'H', 'P', 'L']
+
 def load_cleanup_rules(csv_path):
     cleanup_list = []
     with open(csv_path, newline='', encoding='utf-8') as f:
@@ -60,7 +62,7 @@ def expand_abbreviations(address):
     suffix = ', ' + parts[-2] + ', ' + parts[-1] if len(parts) >= 3 else ""
 
     for raw, pattern, replacement in NAME_CLEANUP_MAP:
-        if raw in ['C', 'H', 'P', 'L']:  # skip fuzzy suffixes
+        if raw in FUZZY_SUFFIXES:  # skip fuzzy suffixes
             continue
         base = re.sub(pattern, replacement, base, flags=re.IGNORECASE)
 
@@ -82,6 +84,10 @@ def detect_directions(address_text):
 # --- END OF ABBREVIATION AND DIRECTION DEFINITIONS ---
 
 # --- UTILITY AND QUERY FUNCTIONS ---
+def parse_viewbox(viewbox_str):
+    parts = list(map(float, viewbox_str.split(',')))
+    return parts if len(parts) == 4 else None
+
 def load_viewboxes(file_path):
     viewbox_dict = {}
     with open(file_path, newline='', encoding='utf-8') as f:
@@ -97,10 +103,6 @@ def load_viewboxes(file_path):
 def extract_city(address):
     parts = address.split(',')
     return parts[-2].strip().lower() if len(parts) >= 2 else None
-
-def parse_viewbox(viewbox_str):
-    parts = list(map(float, viewbox_str.split(',')))
-    return parts if len(parts) == 4 else None
 
 def try_nominatim(address_to_query, viewbox_coords_list):
     # viewbox_coords_list should always be there, as code won't get here if not
@@ -163,8 +165,8 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_list):
     return None, None, "No PostGIS match"
 # --- END OF UTILITY AND QUERY FUNCTIONS ---
 
-def _query_geocoders(address_variant, viewbox_coords_list, is_intersection_query):
-    if not is_intersection_query:
+def _query_geocoders(address_variant, viewbox_coords_list):
+    if not '&' in address_variant:
         return try_nominatim(address_variant, viewbox_coords_list)
     else:
         conn = None
@@ -182,13 +184,14 @@ def _query_geocoders(address_variant, viewbox_coords_list, is_intersection_query
             if conn:
                 connection_pool.putconn(conn)
 
+
+# --- Main geocoding function, goes into futures ---
 def process_address(original_address, viewbox_dict):
     address_pass1 = expand_abbreviations(original_address)
     city_name = extract_city(address_pass1)
     viewbox_coords_list = viewbox_dict.get(city_name)
 
-    is_intersection = '&' in address_pass1
-    lat, lon, result_msg = _query_geocoders(address_pass1, viewbox_coords_list, is_intersection)
+    lat, lon, result_msg = _query_geocoders(address_pass1, viewbox_coords_list)
 
     if lat is not None and lon is not None:
         return [original_address, address_pass1, lat, lon, result_msg]
@@ -196,24 +199,21 @@ def process_address(original_address, viewbox_dict):
     # --- Direction expansion fallback ---
     if detect_directions(address_pass1):
         address_pass2 = expand_directions(address_pass1)
-        if address_pass2 != address_pass1:
-            is_intersection = '&' in address_pass2
-            lat, lon, result_msg = _query_geocoders(address_pass2, viewbox_coords_list, is_intersection)
-            if lat is not None and lon is not None:
-                return [original_address, address_pass2, lat, lon, result_msg]
+        lat, lon, result_msg = _query_geocoders(address_pass2, viewbox_coords_list)
+        if lat is not None and lon is not None:
+            return [original_address, address_pass2, lat, lon, result_msg]
 
     # --- Fuzzy suffix fallback (e.g., C → Circle or Court) ---
-    # Apply only to base portion (before city,state)
+    # is this only changing suffix of first found street?
     base_part = address_pass1.split(',')[:-2]
-    match = re.search(r'\b([A-Z])\b(?=\s|,|$)', base_part)
+    match = re.search(r'\b(' + "|".join(FUZZY_SUFFIXES) + r')\b(?=\s*&|\s*,|$)', test_address)
     if match:
         suffix_letter = match.group(1)
         for raw, pattern, replacement in NAME_CLEANUP_MAP:
             if raw == suffix_letter:
                 fuzzy_variant = re.sub(pattern, replacement, address_pass1, flags=re.IGNORECASE)
                 if fuzzy_variant != address_pass1:
-                    is_intersection = '&' in fuzzy_variant
-                    lat, lon, result_msg = _query_geocoders(fuzzy_variant, viewbox_coords_list, is_intersection)
+                    lat, lon, result_msg = _query_geocoders(fuzzy_variant, viewbox_coords_list)
                     if lat is not None and lon is not None:
                         return [original_address, fuzzy_variant, lat, lon, result_msg]
 
@@ -244,9 +244,8 @@ def main():
         print(f"\u274c Error: Missing viewboxes for cities: {', '.join(missing_viewboxes)}")
         return
 
-    connection_pool = pool.ThreadedConnectionPool(1, NUM_WORKERS, **DB_PARAMS)
+    connection_pool = pool.ThreadedConnectionPool(1, MAX_WORKERS, **DB_PARAMS)
     
-    # csv file for matches and csv file for unmatched
     with open(OUTPUT_FILE_MATCHES, 'w', newline='', encoding='utf-8') as matches_file, \
          open(OUTPUT_FILE_UNMATCHED, 'w', newline='', encoding='utf-8') as unmatched_file:
         
@@ -264,7 +263,8 @@ def main():
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             futures = {executor.submit(process_address, address, viewbox_dict): address for address in raw_addresses}
             for future in tqdm(as_completed(futures), total=len(futures), desc="Geocoding"):
-                original_addr_for_error = futures[future]
+                # save get original address for potential error
+                original_addr = futures[future]
                 try:
                     result_row = future.result() # process_address always returns a 5-element list
                     
@@ -276,8 +276,8 @@ def main():
                         unmatched_writer.writerow(result_row)
                         unmatched_count += 1
                 except Exception as e: 
-                    variant_for_error_log = expand_abbreviations(original_addr_for_error)                    
-                    error_row = [original_addr_for_error, variant_for_error_log, None, None, f"Critical Error in future: {e}"]
+                    used_variant = expand_abbreviations(original_addr)                    
+                    error_row = [original_addr, used_variant, None, None, f"Critical Error: {e}"]
                     unmatched_writer.writerow(error_row)
                     unmatched_count +=1 # Count critical errors as unmatched
     
