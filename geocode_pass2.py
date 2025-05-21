@@ -223,8 +223,8 @@ def process_address(original_address, viewbox_dict):
 def main():
     global connection_pool
     viewbox_dict = load_viewboxes(VIEWBOX_FILE)
+    
     raw_addresses = []
-
     with open(INPUT_FILE, newline='', encoding='utf-8') as infile:
         reader = csv.DictReader(infile)
         if "address" not in reader.fieldnames:
@@ -245,7 +245,7 @@ def main():
 
     connection_pool = pool.ThreadedConnectionPool(1, NUM_WORKERS, **DB_PARAMS)
     
-    # MODIFICATION: Open two files
+    # csv file for matches and csv file for unmatched
     with open(OUTPUT_FILE_MATCHES, 'w', newline='', encoding='utf-8') as matches_file, \
          open(OUTPUT_FILE_UNMATCHED, 'w', newline='', encoding='utf-8') as unmatched_file:
         
@@ -257,7 +257,7 @@ def main():
         unmatched_writer.writerow(header)
         
         matched_count = 0
-        unmatched_count = 0 # Keep track of unmatched for summary
+        unmatched_count = 0
         total_count = len(raw_addresses)
 
         with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
