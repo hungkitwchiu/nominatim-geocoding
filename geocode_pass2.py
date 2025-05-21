@@ -103,6 +103,7 @@ def parse_viewbox(viewbox_str):
     return parts if len(parts) == 4 else None
 
 def try_nominatim(address_to_query, viewbox_coords_list):
+    # viewbox_coords_list should always be there, as code won't get here if not
     if viewbox_coords_list is None: return None, None, "Skipped: No viewbox for Nominatim"
     try:
         left, top, right, bottom = viewbox_coords_list
@@ -118,6 +119,7 @@ def try_nominatim(address_to_query, viewbox_coords_list):
         return None, None, f"Nominatim error: {e}"
 
 def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_list):
+    # viewbox_coords_list should always be there, as code won't get here if not
     if viewbox_coords_list is None: return None, None, "Skipped: No viewbox for PostGIS"
     left, top, right, bottom = viewbox_coords_list
     pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat = left, bottom, right, top
