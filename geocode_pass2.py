@@ -69,9 +69,8 @@ def expand_abbreviations(address):
     return re.sub(r'\s+', ' ', base).strip() + suffix
 
 def expand_directions_only(address):
-    expanded_address = address
     for pattern, replacement in DIRECTION_MAP.items():
-        expanded_address = re.sub(pattern, replacement, expanded_address, flags=re.IGNORECASE)
+        expanded_address = re.sub(pattern, replacement, address, flags=re.IGNORECASE)
     expanded_address = re.sub(r'\s+', ' ', expanded_address).strip()
     return expanded_address
 
