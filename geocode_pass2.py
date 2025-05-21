@@ -68,13 +68,13 @@ def expand_abbreviations(address):
     base = re.sub(r'^\s*&\s*|\s*&\s*$', '', base)
     return re.sub(r'\s+', ' ', base).strip() + suffix
 
-def expand_directions_only(address):
+def expand_directions(address):
     for pattern, replacement in DIRECTION_MAP.items():
         expanded_address = re.sub(pattern, replacement, address, flags=re.IGNORECASE)
     expanded_address = re.sub(r'\s+', ' ', expanded_address).strip()
     return expanded_address
 
-def check_if_directions_can_be_expanded(address_text):
+def detect_directions(address_text):
     for pattern in DIRECTION_MAP.keys():
         if re.search(pattern, address_text, flags=re.IGNORECASE):
             return True
@@ -192,8 +192,8 @@ def process_address(original_address, viewbox_dict):
         return [original_address, address_pass1, lat, lon, result_msg]
 
     # --- Direction expansion fallback ---
-    if check_if_directions_can_be_expanded(address_pass1):
-        address_pass2 = expand_directions_only(address_pass1)
+    if detect_directions(address_pass1):
+        address_pass2 = expand_directions(address_pass1)
         if address_pass2 != address_pass1:
             is_intersection = '&' in address_pass2
             lat, lon, result_msg = _query_geocoders(address_pass2, viewbox_coords_list, is_intersection)
@@ -202,7 +202,7 @@ def process_address(original_address, viewbox_dict):
 
     # --- Fuzzy suffix fallback (e.g., C → Circle or Court) ---
     # Apply only to base portion (before city,state)
-    base_part = address_pass1.split(',')[0]
+    base_part = address_pass1.split(',')[:-2]
     match = re.search(r'\b([A-Z])\b(?=\s|,|$)', base_part)
     if match:
         suffix_letter = match.group(1)
