@@ -1,4 +1,5 @@
 import csv
+import re
 
 DIRECTION_MAP = {
     r'(^|[\s,&])N(?=\s)': r'\1North',
