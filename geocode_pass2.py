@@ -26,7 +26,6 @@ connection_pool = None
 
 
 # --- ABBREVIATION AND DIRECTION DEFINITIONS ---
-NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
 
 def detect_directions(address_text):
     for pattern in DIRECTION_MAP.keys():
