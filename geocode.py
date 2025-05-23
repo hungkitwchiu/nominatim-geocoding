@@ -3,12 +3,18 @@ import requests
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from geofunctions import load_cleanup_rules
+from geofunctions import expand_abbreviations
+from geofunctions import expand_directions
+
 INPUT_FILE = "address.csv"
 OUTPUT_MATCHES = "geocoded_matches.csv"
 OUTPUT_UNMATCHED = "geocoded_unmatched.csv"
 
 API_URL = "http://localhost/nominatim/search"
 MAX_WORKERS = 10
+
+NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
 
 def geocode_address(original_address):
     params = {
