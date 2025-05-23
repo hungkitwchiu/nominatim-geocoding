@@ -14,8 +14,6 @@ OUTPUT_UNMATCHED = "geocoded_unmatched.csv"
 API_URL = "http://localhost/nominatim/search"
 MAX_WORKERS = 10
 
-NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
-
 def geocode_address(original_address):
     params = {
         'q': original_address,
