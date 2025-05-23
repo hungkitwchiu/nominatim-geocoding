@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from geofunctions import load_cleanup_rules
 from geofunctions import expand_abbreviations
 from geofunctions import expand_directions
+from geofunctions import NAME_CLEANUP_MAP
 
 INPUT_FILE = "address.csv"
 OUTPUT_MATCHES = "geocoded_matches.csv"
