@@ -1,3 +1,4 @@
+import csv
 import requests
 from psycopg2 import pool
 from tqdm import tqdm
@@ -25,13 +26,6 @@ connection_pool = None
 
 
 # --- ABBREVIATION AND DIRECTION DEFINITIONS ---
-DIRECTION_MAP = {
-    r'(^|[\s,&])N(?=\s)': r'\1North',
-    r'(^|[\s,&])E(?=\s)': r'\1East',
-    r'(^|[\s,&])S(?=\s)': r'\1South',
-    r'(^|[\s,&])W(?=\s)': r'\1West'
-}
-
 NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
 
 def detect_directions(address_text):
