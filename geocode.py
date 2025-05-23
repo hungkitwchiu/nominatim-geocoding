@@ -1,4 +1,6 @@
-import utility
+from geofunctions import load_cleanup_rules
+from geofunctions import expand_abbreviations
+from geofunctions import expand_directions
 import requests
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
