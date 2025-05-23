@@ -30,7 +30,11 @@ DIRECTION_MAP = {
     r'(^|[\s,&])N(?=\s)': r'\1North',
     r'(^|[\s,&])E(?=\s)': r'\1East',
     r'(^|[\s,&])S(?=\s)': r'\1South',
-    r'(^|[\s,&])W(?=\s)': r'\1West'
+    r'(^|[\s,&])W(?=\s)': r'\1West',
+    r'(^|[\s,&])NE(?=\s)': r'\1Northeast',
+    r'(^|[\s,&])SE(?=\s)': r'\1Southeast',
+    r'(^|[\s,&])NW(?=\s)': r'\1Northwest',
+    r'(^|[\s,&])SW(?=\s)': r'\1Southwest'
 }
 
 FUZZY_SUFFIXES = ['C', 'H', 'P', 'L']
