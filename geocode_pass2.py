@@ -32,6 +32,8 @@ connection_pool = None
 
 # --- ABBREVIATION AND DIRECTION DEFINITIONS ---
 
+
+## no need this really
 def detect_directions(address_text):
     for pattern in DIRECTION_MAP.keys():
         if re.search(pattern, address_text, flags=re.IGNORECASE):
