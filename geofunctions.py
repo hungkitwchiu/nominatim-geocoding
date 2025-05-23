@@ -11,6 +11,7 @@ DIRECTION_MAP = {
     r'(^|[\s,&])SW(?=\s)': r'\1Southwest'
 }
 
+
 def load_cleanup_rules(csv_path):
     FUZZY_SUFFIXES = ['C', 'H', 'P', 'L']
     cleanup_list = []
