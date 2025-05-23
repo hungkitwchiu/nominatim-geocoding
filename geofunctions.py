@@ -1,9 +1,7 @@
 import csv
 
-FUZZY_SUFFIXES = ['C', 'H', 'P', 'L']
-NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
-
 def load_cleanup_rules(csv_path):
+    FUZZY_SUFFIXES = ['C', 'H', 'P', 'L']
     cleanup_list = []
     with open(csv_path, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -21,7 +19,7 @@ def load_cleanup_rules(csv_path):
             # Append tuple: (raw_match, regex_pattern, replacement)
             cleanup_list.append((raw_match, pattern, replacement))
     return cleanup_list
-
+    
 def expand_abbreviations(address):
     parts = [p.strip() for p in address.split(',')]
     base = ','.join(parts[:-2]) if len(parts) >= 3 else address
