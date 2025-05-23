@@ -32,13 +32,14 @@ DIRECTION_MAP = {
     r'(^|[\s,&])W(?=\s)': r'\1West'
 }
 
+NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
 
 def detect_directions(address_text):
     for pattern in DIRECTION_MAP.keys():
         if re.search(pattern, address_text, flags=re.IGNORECASE):
             return True
     return False
-# --- END OF ABBREVIATION AND DIRECTION DEFINITIONS ---
+
 
 # --- UTILITY AND QUERY FUNCTIONS ---
 def parse_viewbox(viewbox_str):
