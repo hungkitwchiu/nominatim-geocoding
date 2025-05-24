@@ -164,7 +164,7 @@ def process_address(original_address, viewbox_dict):
     # --- Fuzzy suffix fallback (e.g., C → Circle or Court) ---
     # is this only changing suffix of first found street?
     base_part = address_pass1.split(',')[:-2]
-    match = re.search(r'\b(' + "|".join(FUZZY_SUFFIXES) + r')\b(?=\s*&|\s*,|$)', test_address)
+    match = re.search(r'\b(' + "|".join(FUZZY_SUFFIXES) + r')\b(?=\s*&|\s*,|$)', base_part)
     if match:
         suffix_letter = match.group(1)
         for raw, pattern, replacement in NAME_CLEANUP_MAP:
