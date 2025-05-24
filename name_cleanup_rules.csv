@@ -1,52 +1,96 @@
 match,replace,notes
+(SB|NB) [0-9]*( TO| FRO.)?( N| S| [0-9]*)?,,San Jose
 ALY,ALLEY,Common suffix
-DR,Drive,Common suffix
-D,Drive,Abbreviation of Drive
+ANX,ANEX,USPS standard suffix
+ARC,ARCADE,USPS standard suffix
 AV,Avenue,Common suffix
 AVE,Avenue,Alternative abbreviation
-RD,Road,Common suffix
+BCH,BEACH,USPS standard suffix
+BG,BURG,USPS standard suffix
+BGS,BURGS,USPS standard suffix
 BL,Boulevard,Common suffix
+BLF,BLUFF,USPS standard suffix
+BLFS,BLUFFS,USPS standard suffix
 BLVD,Boulevard,Alternative abbreviation
-CT,Court,Common suffix
-CL,Circle,Common suffix
+BND,BEND,USPS standard suffix
+BR,BRANCH,USPS standard suffix
+BRG,BRIDGE,USPS standard suffix
+BRK,BROOK,USPS standard suffix
+BRKS,BROOKS,USPS standard suffix
+BTM,BOTTOM,USPS standard suffix
+BYP,BYPASS,USPS standard suffix
+BYU,BAYOU,USPS standard suffix
+C,Circle,Fuzzy suffix
+C,Court,Fuzzy suffix
 CIR,Circle,Alternative abbreviation
-CTR,Center,Common suffix
+CIRS,CIRCLES,USPS standard suffix
+CL,Circle,Common suffix
+CLB,CLUB,USPS standard suffix
+CLF,CLIFF,USPS standard suffix
+CLFS,CLIFFS,USPS standard suffix
 CM,Commons,Common suffix
 CMN,Commons,Common suffix
-LN,Lane,Common suffix
-WY,Way,Common suffix
-PL,Place,Common suffix
+CMNS,COMMONS,USPS standard suffix
+COR,CORNER,USPS standard suffix
+CORS,CORNERS,USPS standard suffix
+CP,CAMP,USPS standard suffix
+CPE,CAPE,USPS standard suffix
+CRES,CRESCENT,USPS standard suffix
+CRK,CREEK,USPS standard suffix
+CRSE,COURSE,USPS standard suffix
+CRST,CREST,USPS standard suffix
+CSWY,CAUSEWAY,USPS standard suffix
+CT,Court,Common suffix
+CTR,Center,Common suffix
+CTRS,CENTERS,USPS standard suffix
+CTS,COURTS,USPS standard suffix
+CURV,CURVE,USPS standard suffix
+CV,COVE,USPS standard suffix
+CVS,COVES,USPS standard suffix
+CYN,CANYON,USPS standard suffix
+D,Drive,Abbreviation of Drive
+Dead End,,San Jose
+DL,DALE,USPS standard suffix
+DM,DAM,USPS standard suffix
+DR,Drive,Common suffix
+DRS,DRIVES,USPS standard suffix
+DV,DIVIDE,USPS standard suffix
+EST,ESTATE,USPS standard suffix
+ESTS,ESTATES,USPS standard suffix
 EX,Expressway,Common suffix
 EXPY,Expressway,Alternative abbreviation
-TER,Terrace,Common suffix
-TR,Terrace,Common suffix
-TERR,Terrace,Common suffix
-LP,Loop,Common suffix
-Obrien,O'brien,Name
-SQ,Square,Common suffix
-STAT,Station,Common suffix
-PKWY,Parkway,Common suffix
-PKY,Parkway,Alternative abbreviation
-PY,Parkway,Alternative abbreviation
-PK,Park,Common suffix
-PRK,Park,Common suffix
+GATOS-ALMADEN,Gatos Almaden,San Jose
+Gdns,Gardens,Cambridge
+HL,Hill,Common suffix
 HWY,Highway,Common suffix
 HY,Highway,Alternative abbreviation
-HL,Hill,Common suffix
-MA,Mall,Common suffix
-R,Road,Common suffix
-St,Saint ,"Convert to 'Saint' before proper name (must end with space)"
-Mt,Mount ,"Convert to 'Mount' before proper name (must end with space)"
-Dead End,,San Jose
-GATOS-ALMADEN,Gatos Almaden,San Jose
-MHP,Mobile Home Park,San Jose
-(SB|NB) [0-9]*( TO| FRO.)?( N| S| [0-9]*)?,,San Jose
 Jfk,John F. Kennedy,Cambridge
-Mbta,,Cambridge
-Gdns,Gardens,Cambridge
-C,Court,Fuzzy suffix
-C,Circle,Fuzzy suffix
-P,Place,Fuzzy suffix
-P,Park,Fuzzy suffix
 L,Lane,Fuzzy suffix
 L,Loop,Fuzzy suffix
+LN,Lane,Common suffix
+LP,Loop,Common suffix
+MA,Mall,Common suffix
+Mbta,,Cambridge
+MHP,Mobile Home Park,San Jose
+Mt,Mount ,Convert to 'Mount' before proper name (must end with space)
+Obrien,O'brien,Name
+P,Place,Fuzzy suffix
+P,Park,Fuzzy suffix
+PK,Park,Common suffix
+PKWY,Parkway,Common suffix
+PKY,Parkway,Alternative abbreviation
+PL,Place,Common suffix
+PRK,Park,Common suffix
+PY,Parkway,Alternative abbreviation
+R,Road,Common suffix
+RD,Road,Common suffix
+SQ,Square,Common suffix
+St,Saint ,Convert to 'Saint' before proper name (must end with space)
+STAT,Station,Common suffix
+TER,Terrace,Common suffix
+TERR,Terrace,Common suffix
+TR,Terrace,Common suffix
+WY,Way,Common suffix
+XING,CROSSING,USPS standard suffix
+XRD,CROSSROAD,USPS standard suffix
+XRDS,CROSSROADS,USPS standard suffix
