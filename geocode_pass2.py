@@ -12,11 +12,11 @@ from geofunctions import NAME_CLEANUP_MAP
 from geofunctions import FUZZY_SUFFIXES
 
 # Configuration
-INPUT_FILE = "geocoded_unmatched.csv"
+INPUT_FILE = "CAM_geocoded_pass2_unmatched.csv"
 #INPUT_FILE = "CAM_address.csv"
 VIEWBOX_FILE = "city_viewboxes.csv"
-OUTPUT_FILE_MATCHES = "CAM_geocoded_pass2_matches.csv"
-OUTPUT_FILE_UNMATCHED = "CAM_geocoded_pass2_unmatched.csv"
+OUTPUT_FILE_MATCHES = "CAM_geocoded_pass3_matches.csv"
+OUTPUT_FILE_UNMATCHED = "CAM_geocoded_pass3_unmatched.csv"
 MAX_WORKERS = 10
 API_URL = "http://localhost/nominatim/search"
 
@@ -68,48 +68,135 @@ def try_nominatim(address_to_query, viewbox_coords_list):
     except Exception as e:
         return None, None, f"Nominatim error: {e}"
 
-def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_list):
-    if viewbox_coords_list is None: return None, None, "Skipped: No viewbox for PostGIS"
-    min_lon, min_lat, max_lon, max_lat = viewbox_coords_list
+def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
+    """
+    Returns (lat, lon, msg) if both features intersect inside the viewbox,
+    or (None, None, reason) otherwise.
+    Handles line–line and polygon–line cases with robust fallbacks.
+    """
+    if not viewbox_coords:
+        return None, None, "Skipped: No viewbox for PostGIS"
 
-    with db_conn.cursor() as cur:
-        cur.execute("""
-            SELECT EXISTS(SELECT 1 FROM planet_osm_line WHERE unaccent(name) ILIKE unaccent(%s) AND ST_Intersects(way, ST_MakeEnvelope(%s,%s,%s,%s,4326))) AS e1,
-                   EXISTS(SELECT 1 FROM planet_osm_line WHERE unaccent(name) ILIKE unaccent(%s) AND ST_Intersects(way, ST_MakeEnvelope(%s,%s,%s,%s,4326))) AS e2;
-        """, (f"%{street1}%", min_lon, min_lat, max_lon, max_lat, f"%{street2}%", min_lon, min_lat, max_lon, max_lat))
-        exists1, exists2 = cur.fetchone()
-        if not (exists1 and exists2): return None, None, f"'{street1}' or '{street2}' not in viewbox"
+    # Unpack viewbox: [min_lon, min_lat, max_lon, max_lat]
+    min_lon, min_lat, max_lon, max_lat = viewbox_coords
+    envelope_sql = "ST_MakeEnvelope(%s, %s, %s, %s, 4326)"
+    bbox_params = [min_lon, min_lat, max_lon, max_lat]
 
-        cur.execute("""
-            SELECT ST_Y(pt) AS lat, ST_X(pt) AS lon
-            FROM (
-                SELECT (ST_Dump(ST_Intersection(w1.way, w2.way))).geom AS pt
-                FROM planet_osm_line w1, planet_osm_line w2
-                WHERE unaccent(w1.name) ILIKE unaccent(%s)
-                AND unaccent(w2.name) ILIKE unaccent(%s)
-                AND ST_Intersects(w1.way, w2.way)
-                AND ST_Intersects(w2.way, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
-            ) AS dumped
+    def exists_in(table, name):
+        sql = f"""
+            SELECT EXISTS(
+              SELECT 1 FROM {table}
+              WHERE unaccent(name) ILIKE unaccent(%s)
+                AND ST_Intersects(way, {envelope_sql})
+            );
+        """
+        params = [f"%{name}%"] + bbox_params
+        with db_conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchone()[0]
+
+    # Detect feature types
+    is_line1 = exists_in("planet_osm_line",    street1)
+    is_poly1 = exists_in("planet_osm_polygon", street1)
+    is_line2 = exists_in("planet_osm_line",    street2)
+    is_poly2 = exists_in("planet_osm_polygon", street2)
+
+    # Bail if missing
+    if not ((is_line1 or is_poly1) and (is_line2 or is_poly2)):
+        return None, None, f"PostGIS: '{street1}' or '{street2}' not in viewbox"
+
+    # 1) LINE–LINE exact intersection
+    if is_line1 and is_line2:
+        sql = f"""
+            SELECT ST_Y(pt), ST_X(pt) FROM (
+              SELECT (ST_Dump(ST_Intersection(l1.way, l2.way))).geom AS pt
+              FROM planet_osm_line AS l1
+              JOIN planet_osm_line AS l2 ON TRUE
+              WHERE unaccent(l1.name) ILIKE unaccent(%s)
+                AND unaccent(l2.name) ILIKE unaccent(%s)
+                AND ST_Intersects(l1.way, l2.way)
+                AND ST_Intersects(l1.way, {envelope_sql})
+            ) AS foo
             WHERE GeometryType(pt) = 'POINT'
             LIMIT 1;
-        """, (
-            f"%{street1}%", f"%{street2}%",
-            min_lon, min_lat, max_lon, max_lat
-        ))
-        row = cur.fetchone()
-        if row and row[0] is not None: return row[0], row[1], f"PostGIS: Intersection {street1} & {street2}"
+        """
+        params = [f"%{street1}%", f"%{street2}%"] + bbox_params
+        with db_conn.cursor() as cur:
+            cur.execute(sql, params)
+            row = cur.fetchone()
+        if row and row[0] is not None:
+            return row[0], row[1], f"PostGIS: Intersection {street1} & {street2}"
 
-        cur.execute("""
-            SELECT ST_Y(ST_Centroid(ST_Union(w1.way))), ST_X(ST_Centroid(ST_Union(w1.way)))
-            FROM planet_osm_line w1 JOIN planet_osm_line w2 ON ST_DWithin(w1.way, w2.way, %s)
-            WHERE unaccent(w1.name) ILIKE unaccent(%s) AND unaccent(w2.name) ILIKE unaccent(%s)
-            AND ST_Intersects(w1.way, ST_MakeEnvelope(%s,%s,%s,%s,4326)) AND ST_Intersects(w2.way, ST_MakeEnvelope(%s,%s,%s,%s,4326))
-            GROUP BY w1.osm_id, w2.osm_id LIMIT 1;
-        """, (BUFFER_DISTANCE, f"%{street1}%", f"%{street2}%", min_lon, min_lat, max_lon, max_lat, min_lon, min_lat, max_lon, max_lat))
-        row = cur.fetchone()
-        if row and row[0] is not None: return row[0], row[1], f"PostGIS: Approx centroid {street1} & {street2}"
+    # 2) POLYGON–LINE intersection (handles both orders)
+    if (is_poly1 and is_line2) or (is_poly2 and is_line1):
+        poly_name, line_name = (street1, street2) if is_poly1 else (street2, street1)
+
+        # a) boundary intersection
+        sql = f"""
+            SELECT ST_Y(pt), ST_X(pt) FROM (
+              SELECT (ST_Dump(
+                        ST_Intersection(
+                          ST_Boundary(poly.way),
+                          line.way
+                        )
+                      )).geom AS pt
+              FROM planet_osm_polygon AS poly
+              JOIN planet_osm_line    AS line ON TRUE
+              WHERE unaccent(poly.name) ILIKE unaccent(%s)
+                AND unaccent(line.name) ILIKE unaccent(%s)
+                AND ST_Intersects(poly.way, {envelope_sql})
+                AND ST_Intersects(line.way, {envelope_sql})
+            ) AS foo
+            WHERE GeometryType(pt) = 'POINT'
+            LIMIT 1;
+        """
+        params = [f"%{poly_name}%", f"%{line_name}%"] + bbox_params * 2
+        with db_conn.cursor() as cur:
+            cur.execute(sql, params)
+            row = cur.fetchone()
+        if row and row[0] is not None:
+            return row[0], row[1], f"PostGIS: Boundary intersection {street1} & {street2}"
+
+        # b) dump a point from the full intersection geometry
+        sql = f"""
+            SELECT ST_Y(pt), ST_X(pt) FROM (
+              SELECT (ST_DumpPoints(
+                        ST_Intersection(poly.way, line.way)
+                      )).geom AS pt
+              FROM planet_osm_polygon AS poly
+              JOIN planet_osm_line    AS line ON TRUE
+              WHERE unaccent(poly.name) ILIKE unaccent(%s)
+                AND unaccent(line.name) ILIKE unaccent(%s)
+                AND ST_Intersects(poly.way, {envelope_sql})
+                AND ST_Intersects(line.way, {envelope_sql})
+            ) AS foo
+            LIMIT 1;
+        """
+        params = [f"%{poly_name}%", f"%{line_name}%"] + bbox_params * 2
+        with db_conn.cursor() as cur:
+            cur.execute(sql, params)
+            row = cur.fetchone()
+        if row and row[0] is not None:
+            return row[0], row[1], f"PostGIS: DumpPoints intersection {street1} & {street2}"
+
+        # c) fallback: centroid of the line feature
+        sql = f"""
+            SELECT
+              ST_Y(ST_Centroid(ST_Union(way))),
+              ST_X(ST_Centroid(ST_Union(way)))
+            FROM planet_osm_line
+            WHERE unaccent(name) ILIKE unaccent(%s)
+              AND ST_Intersects(way, {envelope_sql});
+        """
+        params = [f"%{line_name}%"] + bbox_params
+        with db_conn.cursor() as cur:
+            cur.execute(sql, params)
+            row = cur.fetchone()
+        if row and row[0] is not None:
+            return row[0], row[1], f"PostGIS: Centroid fallback for {line_name}"
+
+    # No match found
     return None, None, "No PostGIS match"
-# --- END OF UTILITY AND QUERY FUNCTIONS ---
 
 def _query_geocoders(address_variant, viewbox_coords_list):
     if not '&' in address_variant:
@@ -129,6 +216,7 @@ def _query_geocoders(address_variant, viewbox_coords_list):
         finally:
             if conn:
                 connection_pool.putconn(conn)
+
 
 
 # --- Main geocoding function, goes into futures ---
