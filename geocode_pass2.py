@@ -15,8 +15,8 @@ from geofunctions import FUZZY_SUFFIXES
 INPUT_FILE = "geocoded_unmatched.csv"
 #INPUT_FILE = "CAM_address.csv"
 VIEWBOX_FILE = "city_viewboxes.csv"
-OUTPUT_FILE_MATCHES = "CAM_geocoded_pass3_matches.csv"
-OUTPUT_FILE_UNMATCHED = "CAM_geocoded_pass3_unmatched.csv"
+OUTPUT_FILE_MATCHES = "CAM_geocoded_pass2_matches.csv"
+OUTPUT_FILE_UNMATCHED = "CAM_geocoded_pass2_unmatched.csv"
 MAX_WORKERS = 10
 API_URL = "http://localhost/nominatim/search"
 
