@@ -9,13 +9,14 @@ from geofunctions import load_cleanup_rules
 from geofunctions import expand_abbreviations
 from geofunctions import expand_directions
 from geofunctions import NAME_CLEANUP_MAP
+from geofunctions import FUZZY_SUFFIXES
 
 # Configuration
-#INPUT_FILE = "geocoded_unmatched.csv"
-INPUT_FILE = "CAM_address.csv"
+INPUT_FILE = "geocoded_unmatched.csv"
+#INPUT_FILE = "CAM_address.csv"
 VIEWBOX_FILE = "city_viewboxes.csv"
-OUTPUT_FILE_MATCHES = "CAM_geocoded_pass2_matches.csv"
-OUTPUT_FILE_UNMATCHED = "CAM_geocoded_pass2_unmatched.csv"
+OUTPUT_FILE_MATCHES = "CAM_geocoded_pass3_matches.csv"
+OUTPUT_FILE_UNMATCHED = "CAM_geocoded_pass3_unmatched.csv"
 MAX_WORKERS = 10
 API_URL = "http://localhost/nominatim/search"
 
@@ -26,15 +27,8 @@ DB_PARAMS = {
     'password': 'nominatim'
 }
 
-BUFFER_DISTANCE = 500
+BUFFER_DISTANCE = 1000
 connection_pool = None
-
-## no need this really
-def detect_directions(address_text):
-    for pattern in DIRECTION_MAP.keys():
-        if re.search(pattern, address_text, flags=re.IGNORECASE):
-            return True
-    return False
 
 
 # --- UTILITY AND QUERY FUNCTIONS ---
@@ -76,14 +70,13 @@ def try_nominatim(address_to_query, viewbox_coords_list):
 
 def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_list):
     if viewbox_coords_list is None: return None, None, "Skipped: No viewbox for PostGIS"
-    left, top, right, bottom = viewbox_coords_list
-    pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat = left, bottom, right, top
+    min_lon, min_lat, max_lon, max_lat = viewbox_coords_list
 
     with db_conn.cursor() as cur:
         cur.execute("""
             SELECT EXISTS(SELECT 1 FROM planet_osm_line WHERE unaccent(name) ILIKE unaccent(%s) AND ST_Intersects(way, ST_MakeEnvelope(%s,%s,%s,%s,4326))) AS e1,
                    EXISTS(SELECT 1 FROM planet_osm_line WHERE unaccent(name) ILIKE unaccent(%s) AND ST_Intersects(way, ST_MakeEnvelope(%s,%s,%s,%s,4326))) AS e2;
-        """, (f"%{street1}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat, f"%{street2}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat))
+        """, (f"%{street1}%", min_lon, min_lat, max_lon, max_lat, f"%{street2}%", min_lon, min_lat, max_lon, max_lat))
         exists1, exists2 = cur.fetchone()
         if not (exists1 and exists2): return None, None, f"'{street1}' or '{street2}' not in viewbox"
 
@@ -101,7 +94,7 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_list):
             LIMIT 1;
         """, (
             f"%{street1}%", f"%{street2}%",
-            pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat
+            min_lon, min_lat, max_lon, max_lat
         ))
         row = cur.fetchone()
         if row and row[0] is not None: return row[0], row[1], f"PostGIS: Intersection {street1} & {street2}"
@@ -112,7 +105,7 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_list):
             WHERE unaccent(w1.name) ILIKE unaccent(%s) AND unaccent(w2.name) ILIKE unaccent(%s)
             AND ST_Intersects(w1.way, ST_MakeEnvelope(%s,%s,%s,%s,4326)) AND ST_Intersects(w2.way, ST_MakeEnvelope(%s,%s,%s,%s,4326))
             GROUP BY w1.osm_id, w2.osm_id LIMIT 1;
-        """, (BUFFER_DISTANCE, f"%{street1}%", f"%{street2}%", pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat, pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat))
+        """, (BUFFER_DISTANCE, f"%{street1}%", f"%{street2}%", min_lon, min_lat, max_lon, max_lat, min_lon, min_lat, max_lon, max_lat))
         row = cur.fetchone()
         if row and row[0] is not None: return row[0], row[1], f"PostGIS: Approx centroid {street1} & {street2}"
     return None, None, "No PostGIS match"
@@ -139,40 +132,45 @@ def _query_geocoders(address_variant, viewbox_coords_list):
 
 
 # --- Main geocoding function, goes into futures ---
+## assuming pass1 is already done
 def process_address(original_address, viewbox_dict):
-    address_pass1 = expand_abbreviations(original_address)
-    city_name = extract_city(address_pass1)
+    city_name = extract_city(original_address)
     viewbox_coords_list = viewbox_dict.get(city_name)
-
-    lat, lon, result_msg = _query_geocoders(address_pass1, viewbox_coords_list)
-
-    if lat is not None and lon is not None:
-        return [original_address, address_pass1, lat, lon, result_msg]
-
-    # --- Direction expansion fallback ---
-    if detect_directions(address_pass1):
-        address_pass2 = expand_directions(address_pass1)
-        lat, lon, result_msg = _query_geocoders(address_pass2, viewbox_coords_list)
+    
+    abbr_expanded = expand_abbreviations(original_address)
+    dir_expanded  = expand_directions(original_address)
+    
+    full_expanded = None
+    if abbr_expanded:
+        full_expanded = expand_directions(abbr_expanded)
+    
+    queries = [original_address]
+    for variant in (abbr_expanded, dir_expanded, full_expanded):
+        if variant:
+            queries.append(variant)
+    
+    for query in queries:
+        lat, lon, result_msg = _query_geocoders(query, viewbox_coords_list)
         if lat is not None and lon is not None:
-            return [original_address, address_pass2, lat, lon, result_msg]
+            return [original_address, query, lat, lon, result_msg]
 
-    # --- Fuzzy suffix fallback (e.g., C → Circle or Court) ---
+    # --- All variants failed, Fuzzy suffix fallback from last query (e.g., C → Circle or Court) ---
     # is this only changing suffix of first found street?
-    base_part = address_pass1.rsplit(',', 2)[0]
-    #base_part = address_pass1.split(',')[:-2]
+    base_part = query.rsplit(',', 2)[0]
+    #base_part = address_pass2.split(',')[:-2]
     match = re.search(r'\b(' + "|".join(FUZZY_SUFFIXES) + r')\b(?=\s*&|\s*,|$)', base_part)
     if match:
         suffix_letter = match.group(1)
         for raw, pattern, replacement in NAME_CLEANUP_MAP:
             if raw == suffix_letter:
-                fuzzy_variant = re.sub(pattern, replacement, address_pass1, flags=re.IGNORECASE)
-                if fuzzy_variant != address_pass1:
+                fuzzy_variant = re.sub(pattern, replacement, query, flags=re.IGNORECASE)
+                if fuzzy_variant != query:
                     lat, lon, result_msg = _query_geocoders(fuzzy_variant, viewbox_coords_list)
                     if lat is not None and lon is not None:
                         return [original_address, fuzzy_variant, lat, lon, result_msg]
 
-    # --- No match found ---
-    return [original_address, address_pass1, None, None, result_msg]
+    # --- All variants failed found ---
+    return [original_address, query, None, None, result_msg]
 
 
 def main():
