@@ -3,33 +3,56 @@ import requests
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-INPUT_FILE = "address.csv"
+from geofunctions import load_cleanup_rules
+from geofunctions import expand_abbreviations
+from geofunctions import expand_directions
+from geofunctions import NAME_CLEANUP_MAP
+
+INPUT_FILE = "CAM_address.csv"
 OUTPUT_MATCHES = "geocoded_matches.csv"
 OUTPUT_UNMATCHED = "geocoded_unmatched.csv"
 
 API_URL = "http://localhost/nominatim/search"
 MAX_WORKERS = 10
 
-def geocode_address(original_address):
-    params = {
-        'q': original_address,
-        'format': 'json',
-        'addressdetails': 1,
-        'limit': 1
-    }
-    try:
-        response = requests.get(API_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
+session = requests.Session()
+
+def geocode_address(org_add):
+    abbr = expand_abbreviations(org_add)
+    abbr_expanded = abbr if abbr != org_add else None
+    direc = expand_directions(org_add)
+    dir_expanded = direc if direc != org_add else None
+
+    full = None
+    if abbr_expanded:
+        full_candidate = expand_directions(abbr_expanded)
+        full = full_candidate if full_candidate != abbr_expanded else None
+
+    # collect only the non‐None queries, original first
+    queries = [org_add] + [q for q in (abbr_expanded, dir_expanded, full) if q]
+
+    for query in queries:
+        params = {
+            'q': query,
+            'format': 'json',
+            'addressdetails': 1,
+            'limit': 1
+        }
+        try:
+            resp = session.get(API_URL, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            return org_add, query, None, None, f"Error: {e}"
+
         if data:
-            lat = data[0]["lat"]
-            lon = data[0]["lon"]
-            result = data[0]["display_name"]
-            return original_address, original_address, lat, lon, result
-        else:
-            return original_address, original_address, None, None, "No match"
-    except Exception as e:
-        return original_address, original_address, None, None, f"Error: {e}"
+            lat  = data[0]['lat']
+            lon  = data[0]['lon']
+            name = data[0]['display_name']
+            return org_add, query, lat, lon, name
+
+    return org_add, None, None, None, "No match"
+        
 
 def main():
     with open(INPUT_FILE, newline='', encoding='utf-8') as infile:
