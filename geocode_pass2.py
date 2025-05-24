@@ -5,6 +5,11 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 
+from geofunctions import load_cleanup_rules
+from geofunctions import expand_abbreviations
+from geofunctions import expand_directions
+from geofunctions import NAME_CLEANUP_MAP
+
 # Configuration
 #INPUT_FILE = "geocoded_unmatched.csv"
 INPUT_FILE = "CAM_address.csv"
@@ -24,68 +29,13 @@ DB_PARAMS = {
 BUFFER_DISTANCE = 500
 connection_pool = None
 
-
-# --- ABBREVIATION AND DIRECTION DEFINITIONS ---
-DIRECTION_MAP = {
-    r'(^|[\s,&])N(?=\s)': r'\1North',
-    r'(^|[\s,&])E(?=\s)': r'\1East',
-    r'(^|[\s,&])S(?=\s)': r'\1South',
-    r'(^|[\s,&])W(?=\s)': r'\1West',
-    r'(^|[\s,&])NE(?=\s)': r'\1Northeast',
-    r'(^|[\s,&])SE(?=\s)': r'\1Southeast',
-    r'(^|[\s,&])NW(?=\s)': r'\1Northwest',
-    r'(^|[\s,&])SW(?=\s)': r'\1Southwest'
-}
-
-FUZZY_SUFFIXES = ['C', 'H', 'P', 'L']
-
-NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
-
-def load_cleanup_rules(csv_path):
-    cleanup_list = []
-    with open(csv_path, newline='', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            raw_match = row['match'].strip()
-            replacement = row['replace']
-            if not raw_match:
-                continue
-
-            if raw_match in ['St', 'Mt']:
-                pattern = rf'\b{raw_match}\s+(?=[A-Z])'
-            else:
-                pattern = fr'\b{raw_match}\b'
-
-            # Append tuple: (raw_match, regex_pattern, replacement)
-            cleanup_list.append((raw_match, pattern, replacement))
-    return cleanup_list
-
-def expand_abbreviations(address):
-    parts = [p.strip() for p in address.split(',')]
-    base = ','.join(parts[:-2]) if len(parts) >= 3 else address
-    suffix = ', ' + parts[-2] + ', ' + parts[-1] if len(parts) >= 3 else ""
-
-    for raw, pattern, replacement in NAME_CLEANUP_MAP:
-        if raw in FUZZY_SUFFIXES:  # skip fuzzy suffixes
-            continue
-        base = re.sub(pattern, replacement, base, flags=re.IGNORECASE)
-
-    base = re.sub(r'\bSt(?=(\s&|&|,|$))', 'Street', base, flags=re.IGNORECASE)
-    base = re.sub(r'^\s*&\s*|\s*&\s*$', '', base)
-    return re.sub(r'\s+', ' ', base).strip() + suffix
-
-def expand_directions(address):
-    for pattern, replacement in DIRECTION_MAP.items():
-        expanded_address = re.sub(pattern, replacement, address, flags=re.IGNORECASE)
-    expanded_address = re.sub(r'\s+', ' ', expanded_address).strip()
-    return expanded_address
-
+## no need this really
 def detect_directions(address_text):
     for pattern in DIRECTION_MAP.keys():
         if re.search(pattern, address_text, flags=re.IGNORECASE):
             return True
     return False
-# --- END OF ABBREVIATION AND DIRECTION DEFINITIONS ---
+
 
 # --- UTILITY AND QUERY FUNCTIONS ---
 def parse_viewbox(viewbox_str):
@@ -109,7 +59,7 @@ def extract_city(address):
     return parts[-2].strip().lower() if len(parts) >= 2 else None
 
 def try_nominatim(address_to_query, viewbox_coords_list):
-    # viewbox_coords_list should always be there, as code won't get here if not
+    # pass if city column is empty
     if viewbox_coords_list is None: return None, None, "Skipped: No viewbox for Nominatim"
     try:
         left, top, right, bottom = viewbox_coords_list
@@ -125,7 +75,6 @@ def try_nominatim(address_to_query, viewbox_coords_list):
         return None, None, f"Nominatim error: {e}"
 
 def try_postgis_intersection(street1, street2, db_conn, viewbox_coords_list):
-    # viewbox_coords_list should always be there, as code won't get here if not
     if viewbox_coords_list is None: return None, None, "Skipped: No viewbox for PostGIS"
     left, top, right, bottom = viewbox_coords_list
     pg_min_lon, pg_min_lat, pg_max_lon, pg_max_lat = left, bottom, right, top
@@ -209,8 +158,9 @@ def process_address(original_address, viewbox_dict):
 
     # --- Fuzzy suffix fallback (e.g., C → Circle or Court) ---
     # is this only changing suffix of first found street?
-    base_part = address_pass1.split(',')[:-2]
-    match = re.search(r'\b(' + "|".join(FUZZY_SUFFIXES) + r')\b(?=\s*&|\s*,|$)', test_address)
+    base_part = address_pass1.rsplit(',', 2)[0]
+    #base_part = address_pass1.split(',')[:-2]
+    match = re.search(r'\b(' + "|".join(FUZZY_SUFFIXES) + r')\b(?=\s*&|\s*,|$)', base_part)
     if match:
         suffix_letter = match.group(1)
         for raw, pattern, replacement in NAME_CLEANUP_MAP:
