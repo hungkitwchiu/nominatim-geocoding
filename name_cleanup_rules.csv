@@ -1,5 +1,6 @@
 match,replace,notes
 (SB|NB) [0-9]*( TO| FRO.)?( N| S| [0-9]*)?,,San Jose
+AL,ALLEY,Common suffix
 ALY,ALLEY,Common suffix
 ANX,ANEX,USPS standard suffix
 ARC,ARCADE,USPS standard suffix
@@ -9,6 +10,7 @@ BCH,BEACH,USPS standard suffix
 BG,BURG,USPS standard suffix
 BGS,BURGS,USPS standard suffix
 BL,Boulevard,Common suffix
+BLDG,Building,Common suffix
 BLF,BLUFF,USPS standard suffix
 BLFS,BLUFFS,USPS standard suffix
 BLVD,Boulevard,Alternative abbreviation
@@ -29,12 +31,14 @@ CLB,CLUB,USPS standard suffix
 CLF,CLIFF,USPS standard suffix
 CLFS,CLIFFS,USPS standard suffix
 CM,Commons,Common suffix
+CMMN,Common,Common suffix
 CMN,Commons,Common suffix
 CMNS,COMMONS,USPS standard suffix
 COR,CORNER,USPS standard suffix
 CORS,CORNERS,USPS standard suffix
 CP,CAMP,USPS standard suffix
 CPE,CAPE,USPS standard suffix
+CRE,Creek,Common suffix
 CRES,CRESCENT,USPS standard suffix
 CRK,CREEK,USPS standard suffix
 CRSE,COURSE,USPS standard suffix
@@ -50,6 +54,7 @@ CVS,COVES,USPS standard suffix
 CYN,CANYON,USPS standard suffix
 D,Drive,Abbreviation of Drive
 Dead End,,San Jose
+DE00 END,,Berkeley
 DL,DALE,USPS standard suffix
 DM,DAM,USPS standard suffix
 DR,Drive,Common suffix
@@ -59,20 +64,35 @@ EST,ESTATE,USPS standard suffix
 ESTS,ESTATES,USPS standard suffix
 EX,Expressway,Common suffix
 EXPY,Expressway,Alternative abbreviation
+FLD,Field,Common suffix
+FL,Floor,Common suffix
+FRNT,Front,Common suffix
+FWY,Freeway,Common suffix
 GATOS-ALMADEN,Gatos Almaden,San Jose
 Gdns,Gardens,Cambridge
+GTWY,Gateway,Common suffix
+HBR,Harbor,Common suffix
 HL,Hill,Common suffix
+HNGR,Hanger,Common suffix
+HTS,Heights,Common suffix
+HVN,Haven,Common suffix
 HWY,Highway,Common suffix
 HY,Highway,Alternative abbreviation
+JCT,Junction,Common suffix
 Jfk,John F. Kennedy,Cambridge
+JNR,Junior,Berkeley
 L,Lane,Fuzzy suffix
 L,Loop,Fuzzy suffix
 LN,Lane,Common suffix
 LP,Loop,Common suffix
+LK,Lake,Common suffix
 MA,Mall,Common suffix
+Martin Luther King JR,Martin Luther King Junior,Berkeley
 Mbta,,Cambridge
 MHP,Mobile Home Park,San Jose
+M L King JR,Martin Luther King Junior,Berkeley
 Mt,Mount ,Convert to 'Mount' before proper name (must end with space)
+MTN,Mountain,Common Suffix
 Obrien,O'brien,Name
 P,Place,Fuzzy suffix
 P,Park,Fuzzy suffix
@@ -80,16 +100,29 @@ PK,Park,Common suffix
 PKWY,Parkway,Common suffix
 PKY,Parkway,Alternative abbreviation
 PL,Place,Common suffix
+PLZ,Plaza,Common suffix
 PRK,Park,Common suffix
+PT,Point,Common Suffix
 PY,Parkway,Alternative abbreviation
 R,Road,Common suffix
 RD,Road,Common suffix
+RNCH,Ranch,Common suffix
+RPDS,Rapids,Common suffix
+RTE,Route,Common suffix
+S,Street,Fuzzy suffix
+SKWY,Skyway,Common suffix
 SQ,Square,Common suffix
 St,Saint ,Convert to 'Saint' before proper name (must end with space)
+STA,Station,Common suffix
 STAT,Station,Common suffix
 TER,Terrace,Common suffix
 TERR,Terrace,Common suffix
 TR,Terrace,Common suffix
+TPKE,Turnpike,Common suffix
+VAL,Valley,Common suffix
+VLG,Village,Common suffix
+VLY,Valley,Common suffix
+WW,Walkway,Common suffix
 WY,Way,Common suffix
 XING,CROSSING,USPS standard suffix
 XRD,CROSSROAD,USPS standard suffix
