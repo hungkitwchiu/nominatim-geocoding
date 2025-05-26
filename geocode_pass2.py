@@ -12,11 +12,11 @@ from geofunctions import NAME_CLEANUP_MAP
 from geofunctions import FUZZY_SUFFIXES
 
 # Configuration
-INPUT_FILE = "CAM_geocoded_pass2_unmatched.csv"
+INPUT_FILE = "geocoded_unmatched.csv"
 #INPUT_FILE = "CAM_address.csv"
 VIEWBOX_FILE = "city_viewboxes.csv"
-OUTPUT_FILE_MATCHES = "CAM_geocoded_pass3_matches.csv"
-OUTPUT_FILE_UNMATCHED = "CAM_geocoded_pass3_unmatched.csv"
+OUTPUT_FILE_MATCHES = "BER_geocoded_pass2_matches.csv"
+OUTPUT_FILE_UNMATCHED = "BER_geocoded_pass2_unmatched.csv"
 MAX_WORKERS = 10
 API_URL = "http://localhost/nominatim/search"
 
@@ -32,17 +32,14 @@ connection_pool = None
 
 
 # --- UTILITY AND QUERY FUNCTIONS ---
-def parse_viewbox(viewbox_str):
-    parts = list(map(float, viewbox_str.split(',')))
-    return parts if len(parts) == 4 else None
-
 def load_viewboxes(file_path):
     viewbox_dict = {}
     with open(file_path, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
             viewbox_str = row['viewbox']
-            parsed_coords = parse_viewbox(viewbox_str)
+            parts = list(map(float, viewbox_str.split(',')))
+            parsed_coords = parts if len(parts) == 4 else None
             if parsed_coords is None:
                 raise ValueError(f"Malformed viewbox for city '{row['city']}': '{viewbox_str}'")
             viewbox_dict[row['city'].lower()] = parsed_coords
@@ -79,7 +76,8 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
     """
     if not viewbox_coords:
         return None, None, "Skipped: No viewbox for PostGIS"
-
+    if street1 == "" or street2 == "":
+        return None, None, "Skipped: Empty street"
     # Unpack viewbox
     min_lon, min_lat, max_lon, max_lat = viewbox_coords
     envelope_sql = "ST_MakeEnvelope(%s, %s, %s, %s, 4326)"
@@ -104,7 +102,7 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
     is_line2 = exists_in("planet_osm_line",    street2)
     is_poly2 = exists_in("planet_osm_polygon", street2)
 
-    # Ensure both present
+    # Ensure at least one present ### and vs or
     if not ((is_line1 or is_poly1) and (is_line2 or is_poly2)):
         return None, None, f"PostGIS: '{street1}' or '{street2}' not in viewbox"
 
@@ -156,7 +154,7 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
         if row:
             return row[0], row[1], f"PostGIS: Intersection {street1} & {street2}"
 
-        # 2) buffer-based fallback
+        # 2) buffer-based fallback; ON ST_DWithin takes BUFFER_DISTANCE
         buffer_sql = f"""
             SELECT ST_Y(ST_Centroid(ST_Union(w1.way))),
                    ST_X(ST_Centroid(ST_Union(w1.way)))
@@ -209,23 +207,24 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
             return row[0], row[1], f"PostGIS: Buffer intersection {p_name} & {l_name}"
 
         # 2) avg centroids fallback
-        #cy_p, cx_p = get_centroid('planet_osm_polygon', p_name)
-        #cy_l, cx_l = get_centroid('planet_osm_line',    l_name)
-        #if cy_p and cy_l:
-        #    return ((cy_p + cy_l) / 2, (cx_p + cx_l) / 2,
-        #            f"PostGIS: Avg centroid {p_name} & {l_name}")
+        cy_p, cx_p = get_centroid('planet_osm_polygon', p_name)
+        cy_l, cx_l = get_centroid('planet_osm_line',    l_name)
+        if cy_p and cy_l:
+            return ((cy_p + cy_l) / 2, (cx_p + cx_l) / 2,
+                    f"PostGIS: Avg centroid {p_name} & {l_name}")
 
     # Case C: single line
-    #if is_line1:
-    #    cy, cx = get_centroid('planet_osm_line', street1)
+    #if is_line1 or is_line2:
+    #    street = street1 if is_line1 is not None else street2
+    #    cy, cx = get_centroid('planet_osm_line', street)
     #    if cy:
-    #        return cy, cx, f"PostGIS: Centroid {street1}"
+    #        return cy, cx, f"PostGIS: Single street centroid {street}"
 
     # Case D: single polygon
     #if is_poly1:
     #    cy, cx = get_centroid('planet_osm_polygon', street1)
     #    if cy:
-    #        return cy, cx, f"PostGIS: Centroid {street1}"
+    #        return cy, cx, f"PostGIS: Single polygon centroid {street1}"
 
     return None, None, "No PostGIS match"
 
@@ -248,10 +247,7 @@ def _query_geocoders(address_variant, viewbox_coords_list):
             if conn:
                 connection_pool.putconn(conn)
 
-
-
 # --- Main geocoding function, goes into futures ---
-## assuming pass1 is already done
 def process_address(original_address, viewbox_dict):
     city_name = extract_city(original_address)
     viewbox_coords_list = viewbox_dict.get(city_name)
