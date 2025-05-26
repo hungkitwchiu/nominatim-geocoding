@@ -31,8 +31,23 @@ def load_cleanup_rules(csv_path):
             # Append tuple: (raw_match, regex_pattern, replacement)
             cleanup_list.append((raw_match, pattern, replacement))
     return cleanup_list
+    
+def load_viewboxes(file_path):
+    viewbox_dict = {}
+    with open(file_path, newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            viewbox_str = row['viewbox']
+            parts = list(map(float, viewbox_str.split(',')))
+            parsed_coords = parts if len(parts) == 4 else None
+            if parsed_coords is None:
+                raise ValueError(f"Malformed viewbox for city '{row['city']}': '{viewbox_str}'")
+            viewbox_dict[row['city'].lower()] = parsed_coords
+    return viewbox_dict
+
 
 NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
+viewbox_dict = load_viewboxes("city_viewboxes.csv")
 
 def expand_abbreviations(address):
     parts  = [p.strip() for p in address.split(',')]

@@ -10,11 +10,11 @@ from geofunctions import expand_abbreviations
 from geofunctions import expand_directions
 from geofunctions import NAME_CLEANUP_MAP
 from geofunctions import FUZZY_SUFFIXES
+from geofunctions import viewbox_dict
 
 # Configuration
 INPUT_FILE = "geocoded_unmatched.csv"
 #INPUT_FILE = "CAM_address.csv"
-VIEWBOX_FILE = "city_viewboxes.csv"
 OUTPUT_FILE_MATCHES = "BER_geocoded_pass2_matches.csv"
 OUTPUT_FILE_UNMATCHED = "BER_geocoded_pass2_unmatched.csv"
 MAX_WORKERS = 10
@@ -32,19 +32,6 @@ connection_pool = None
 
 
 # --- UTILITY AND QUERY FUNCTIONS ---
-def load_viewboxes(file_path):
-    viewbox_dict = {}
-    with open(file_path, newline='', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            viewbox_str = row['viewbox']
-            parts = list(map(float, viewbox_str.split(',')))
-            parsed_coords = parts if len(parts) == 4 else None
-            if parsed_coords is None:
-                raise ValueError(f"Malformed viewbox for city '{row['city']}': '{viewbox_str}'")
-            viewbox_dict[row['city'].lower()] = parsed_coords
-    return viewbox_dict
-
 def extract_city(address):
     parts = address.split(',')
     return parts[-2].strip().lower() if len(parts) >= 2 else None
@@ -69,10 +56,6 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
     """
     Returns (lat, lon, msg) if both features are inside the viewbox,
     or (None, None, reason) otherwise.
-    Simplified logic with buffer fallback:
-      - Both lines: try exact intersection, then buffered union centroid, then avg centroids.
-      - One polygon & one line: buffered fallback, then avg centroids.
-      - Single feature: centroid.
     """
     if not viewbox_coords:
         return None, None, "Skipped: No viewbox for PostGIS"
@@ -290,7 +273,6 @@ def process_address(original_address, viewbox_dict):
 
 def main():
     global connection_pool
-    viewbox_dict = load_viewboxes(VIEWBOX_FILE)
     
     raw_addresses = []
     with open(INPUT_FILE, newline='', encoding='utf-8') as infile:
