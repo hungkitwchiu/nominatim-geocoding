@@ -11,9 +11,9 @@ DIRECTION_MAP = {
     r'(^|[\s,&])NW(?=\s)': r'\1Northwest',
     r'(^|[\s,&])SW(?=\s)': r'\1Southwest'
 }
+FUZZY_SUFFIXES = ['C', 'P', 'L', 'S']
 
 def load_cleanup_rules(csv_path):
-    FUZZY_SUFFIXES = ['C', 'H', 'P', 'L']
     cleanup_list = []
     with open(csv_path, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -35,21 +35,31 @@ def load_cleanup_rules(csv_path):
 NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
 
 def expand_abbreviations(address):
-    parts = [p.strip() for p in address.split(',')]
-    base = ','.join(parts[:-2]) if len(parts) >= 3 else address
-    suffix = ', ' + parts[-2] + ', ' + parts[-1] if len(parts) >= 3 else ""
+    parts  = [p.strip() for p in address.split(',')]
+    base   = ','.join(parts[:-2]) if len(parts) >= 3 else address
+    suffix = ', ' + parts[-2] + ', ' + parts[-1] if len(parts) >= 3 else ''
 
     for raw, pattern, replacement in NAME_CLEANUP_MAP:
-        if raw in FUZZY_SUFFIXES:  # skip fuzzy suffixes
+        if raw in FUZZY_SUFFIXES:
             continue
         base = re.sub(pattern, replacement, base, flags=re.IGNORECASE)
 
-    base = re.sub(r'\bSt(?=(\s&|&|,|$))', 'Street', base, flags=re.IGNORECASE)
+    base = re.sub(r'\bSt(?=(\s|&|,|$))', 'Street', base, flags=re.IGNORECASE)
     base = re.sub(r'^\s*&\s*|\s*&\s*$', '', base)
-    return re.sub(r'\s+', ' ', base).strip() + suffix
+    expanded = re.sub(r'\s+', ' ', base).strip() + suffix
+
+    # only return a string if it actually changed
+    if expanded.lower() == address.lower():
+        return None
+    return expanded
+
 
 def expand_directions(address):
+    expanded = address
     for pattern, replacement in DIRECTION_MAP.items():
-        expanded_address = re.sub(pattern, replacement, address, flags=re.IGNORECASE)
-    expanded_address = re.sub(r'\s+', ' ', expanded_address).strip()
-    return expanded_address
+        expanded = re.sub(pattern, replacement, expanded, flags=re.IGNORECASE)
+    expanded = re.sub(r'\s+', ' ', expanded).strip()
+
+    if expanded.lower() == address.lower():
+        return None
+    return expanded
