@@ -9,15 +9,15 @@ from geofunctions import load_cleanup_rules
 from geofunctions import expand_abbreviations
 from geofunctions import expand_directions
 from geofunctions import remove_suffix
+from geofunctions import VIEWBOX_DICT
 from geofunctions import NAME_CLEANUP_MAP
 from geofunctions import FUZZY_SUFFIXES
-from geofunctions import viewbox_dict
+
 
 # Configuration
-INPUT_FILE = "geocoded_unmatched.csv"
-#INPUT_FILE = "CAM_address.csv"
-OUTPUT_FILE_MATCHES = "geocoded_pass2_matches.csv"
-OUTPUT_FILE_UNMATCHED = "geocoded_pass2_unmatched.csv"
+INPUT_FILE = "CAM_address.csv"
+OUTPUT_FILE_MATCHES = "CAM_geocoded_pass2_matches.csv"
+OUTPUT_FILE_UNMATCHED = "CAM_geocoded_pass2_unmatched.csv"
 MAX_WORKERS = 10
 API_URL = "http://localhost/nominatim/search"
 
@@ -232,9 +232,9 @@ def _query_geocoders(address_variant, viewbox_coords_list):
                 connection_pool.putconn(conn)
 
 # --- Main geocoding function, goes into futures ---
-def process_address(original_address, viewbox_dict):
+def process_address(original_address, VIEWBOX_DICT):
     city_name = extract_city(original_address)
-    viewbox_coords_list = viewbox_dict.get(city_name)
+    viewbox_coords_list = VIEWBOX_DICT.get(city_name)
     
     abbr_expanded = expand_abbreviations(original_address)
     dir_expanded  = expand_directions(original_address)
@@ -301,7 +301,7 @@ def main():
         if city:
             cities_in_data.add(city)
     
-    missing_viewboxes = sorted(c for c in cities_in_data if c not in viewbox_dict)
+    missing_viewboxes = sorted(c for c in cities_in_data if c not in VIEWBOX_DICT)
     if missing_viewboxes:
         print(f"\u274c Error: Missing viewboxes for cities: {', '.join(missing_viewboxes)}")
         return
@@ -323,7 +323,7 @@ def main():
         total_count = len(raw_addresses)
 
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = {executor.submit(process_address, address, viewbox_dict): address for address in raw_addresses}
+            futures = {executor.submit(process_address, address, VIEWBOX_DICT): address for address in raw_addresses}
             for future in tqdm(as_completed(futures), total=len(futures), desc="Geocoding"):
                 # save get original address for potential error
                 original_addr = futures[future]

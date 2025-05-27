@@ -33,7 +33,7 @@ def load_cleanup_rules(csv_path):
     return cleanup_list
     
 def load_viewboxes(file_path):
-    viewbox_dict = {}
+    VIEWBOX_DICT = {}
     with open(file_path, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -42,12 +42,12 @@ def load_viewboxes(file_path):
             parsed_coords = parts if len(parts) == 4 else None
             if parsed_coords is None:
                 raise ValueError(f"Malformed viewbox for city '{row['city']}': '{viewbox_str}'")
-            viewbox_dict[row['city'].lower()] = parsed_coords
-    return viewbox_dict
+            VIEWBOX_DICT[row['city'].lower()] = parsed_coords
+    return VIEWBOX_DICT
 
 
 NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
-viewbox_dict = load_viewboxes("city_viewboxes.csv")
+VIEWBOX_DICT = load_viewboxes("city_viewboxes.csv")
 
 def expand_abbreviations(address):
     parts  = [p.strip() for p in address.split(',')]
@@ -77,12 +77,13 @@ def remove_suffix(address):
     for raw, pattern, replacement in NAME_CLEANUP_MAP:
         if raw in FUZZY_SUFFIXES:
             continue
-        base = re.sub(replacement, "", base, flags=re.IGNORECASE)
+        base = re.sub(fr'\b{replacement}\b', "", base, flags=re.IGNORECASE)
+        
     removed = re.sub(r'\s+', ' ', base).strip() + suffix
     if removed.lower() == address.lower():
         return None
     return removed
-    
+
 def expand_directions(address):
     expanded = address
     for pattern, replacement in DIRECTION_MAP.items():
