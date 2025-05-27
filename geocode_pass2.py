@@ -8,6 +8,7 @@ import re
 from geofunctions import load_cleanup_rules
 from geofunctions import expand_abbreviations
 from geofunctions import expand_directions
+from geofunctions import remove_suffix
 from geofunctions import NAME_CLEANUP_MAP
 from geofunctions import FUZZY_SUFFIXES
 from geofunctions import viewbox_dict
@@ -15,8 +16,8 @@ from geofunctions import viewbox_dict
 # Configuration
 INPUT_FILE = "geocoded_unmatched.csv"
 #INPUT_FILE = "CAM_address.csv"
-OUTPUT_FILE_MATCHES = "BER_geocoded_pass2_matches.csv"
-OUTPUT_FILE_UNMATCHED = "BER_geocoded_pass2_unmatched.csv"
+OUTPUT_FILE_MATCHES = "geocoded_pass2_matches.csv"
+OUTPUT_FILE_UNMATCHED = "geocoded_pass2_unmatched.csv"
 MAX_WORKERS = 10
 API_URL = "http://localhost/nominatim/search"
 
@@ -35,9 +36,17 @@ connection_pool = None
 def extract_city(address):
     parts = address.split(',')
     return parts[-2].strip().lower() if len(parts) >= 2 else None
+    
+def remove_city(address):
+    parts = address.split(',')
+    if len(parts) < 2:
+        return None
+    new_list = parts[:-2] + parts[-1:]
+    # lower to indicate this is a latter variant
+    return ",".join(new_list).strip().lower()
 
 def try_nominatim(address_to_query, viewbox_coords_list):
-    # pass if city column is empty
+    # pass if viebox_coords_list is empty
     if viewbox_coords_list is None: return None, None, "Skipped: No viewbox for Nominatim"
     try:
         left, top, right, bottom = viewbox_coords_list
@@ -85,7 +94,7 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
     is_line2 = exists_in("planet_osm_line",    street2)
     is_poly2 = exists_in("planet_osm_polygon", street2)
 
-    # Ensure at least one present ### and vs or
+    # Ensure both are present
     if not ((is_line1 or is_poly1) and (is_line2 or is_poly2)):
         return None, None, f"PostGIS: '{street1}' or '{street2}' not in viewbox"
 
@@ -139,8 +148,10 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
 
         # 2) buffer-based fallback; ON ST_DWithin takes BUFFER_DISTANCE
         buffer_sql = f"""
-            SELECT ST_Y(ST_Centroid(ST_Union(w1.way))),
-                   ST_X(ST_Centroid(ST_Union(w1.way)))
+          WITH nearest AS (
+            SELECT
+              ST_Distance(w1.way, w2.way) AS dist,
+              ST_ClosestPoint(w1.way, w2.way) AS cp
             FROM planet_osm_line AS w1
             JOIN planet_osm_line AS w2
               ON ST_DWithin(w1.way, w2.way, %s)
@@ -148,15 +159,18 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
               AND unaccent(w2.name) ILIKE unaccent(%s)
               AND ST_Intersects(w1.way, {envelope_sql})
               AND ST_Intersects(w2.way, {envelope_sql})
-            GROUP BY w1.osm_id, w2.osm_id
-            LIMIT 1;
+          )
+          SELECT ST_Y(cp), ST_X(cp)
+          FROM nearest
+          ORDER BY dist
+          LIMIT 1;
         """
         params = [BUFFER_DISTANCE, f"%{street1}%", f"%{street2}%"] + bbox_params * 2
         with db_conn.cursor() as cur:
             cur.execute(buffer_sql, params)
             row = cur.fetchone()
-        if row and row[0] is not None:
-            return row[0], row[1], f"PostGIS: Buffer intersection {street1} & {street2}"
+        if row:
+            return row[0], row[1], f"PostGIS: False intersection {street1} & {street2}"
 
         # 3) avg centroids fallback
         cy1, cx1 = get_centroid('planet_osm_line', street1)
@@ -196,19 +210,6 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
             return ((cy_p + cy_l) / 2, (cx_p + cx_l) / 2,
                     f"PostGIS: Avg centroid {p_name} & {l_name}")
 
-    # Case C: single line
-    #if is_line1 or is_line2:
-    #    street = street1 if is_line1 is not None else street2
-    #    cy, cx = get_centroid('planet_osm_line', street)
-    #    if cy:
-    #        return cy, cx, f"PostGIS: Single street centroid {street}"
-
-    # Case D: single polygon
-    #if is_poly1:
-    #    cy, cx = get_centroid('planet_osm_polygon', street1)
-    #    if cy:
-    #        return cy, cx, f"PostGIS: Single polygon centroid {street1}"
-
     return None, None, "No PostGIS match"
 
 def _query_geocoders(address_variant, viewbox_coords_list):
@@ -241,11 +242,25 @@ def process_address(original_address, viewbox_dict):
     full_expanded = None
     if abbr_expanded:
         full_expanded = expand_directions(abbr_expanded)
-    
+        
+    # add fall back: remove city, remove suffix (?)
     queries = [original_address]
     for variant in (abbr_expanded, dir_expanded, full_expanded):
         if variant:
             queries.append(variant)
+
+    # at this point viewbox_coords_list is already acquired
+    # make a copy of last query for possible fuzzy suffix use
+    fuzzy_base = queries[-1].rsplit(',', 2)[0]
+    
+    # --- "lowercase" variants coming in, variants without city and suffix ---
+    # add no city variant building on the current last in queries
+    queries.append(remove_city(queries[-1]))
+    # check if there is removable suffix by passing the no city variant
+    removed = remove_suffix(queries[-1])
+    if removed:
+        # add variant without suffix
+        queries.append(removed)
     
     for query in queries:
         lat, lon, result_msg = _query_geocoders(query, viewbox_coords_list)
@@ -253,10 +268,8 @@ def process_address(original_address, viewbox_dict):
             return [original_address, query, lat, lon, result_msg]
 
     # --- All variants failed, Fuzzy suffix fallback from last query (e.g., C → Circle or Court) ---
-    # is this only changing suffix of first found street?
-    base_part = query.rsplit(',', 2)[0]
-    #base_part = address_pass2.split(',')[:-2]
-    match = re.search(r'\b(' + "|".join(FUZZY_SUFFIXES) + r')\b(?=\s*&|\s*,|$)', base_part)
+    # only changing the first suffix letter, so won't work for intersection type with two fuzzy suffixes
+    match = re.search(r'\b(' + "|".join(FUZZY_SUFFIXES) + r')\b(?=\s*&|\s*,|$)', fuzzy_base)
     if match:
         suffix_letter = match.group(1)
         for raw, pattern, replacement in NAME_CLEANUP_MAP:
@@ -267,7 +280,7 @@ def process_address(original_address, viewbox_dict):
                     if lat is not None and lon is not None:
                         return [original_address, fuzzy_variant, lat, lon, result_msg]
 
-    # --- All variants failed found ---
+    # --- All variants failed ---
     return [original_address, query, None, None, result_msg]
 
 

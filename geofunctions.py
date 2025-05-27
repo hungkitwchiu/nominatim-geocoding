@@ -68,7 +68,21 @@ def expand_abbreviations(address):
         return None
     return expanded
 
-
+def remove_suffix(address):
+    # address should not contain city coming into here, should be XX Street, State
+    parts  = [p.strip() for p in address.split(',')]
+    base   = ','.join(parts[:-1]) if len(parts) >= 2 else address
+    suffix = ', ' + parts[-1] if len(parts) >= 2 else ''
+    
+    for raw, pattern, replacement in NAME_CLEANUP_MAP:
+        if raw in FUZZY_SUFFIXES:
+            continue
+        base = re.sub(replacement, "", base, flags=re.IGNORECASE)
+    removed = re.sub(r'\s+', ' ', base).strip() + suffix
+    if removed.lower() == address.lower():
+        return None
+    return removed
+    
 def expand_directions(address):
     expanded = address
     for pattern, replacement in DIRECTION_MAP.items():

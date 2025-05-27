@@ -8,7 +8,7 @@ from geofunctions import expand_abbreviations
 from geofunctions import expand_directions
 from geofunctions import NAME_CLEANUP_MAP
 
-INPUT_FILE = "CAM_address.csv"
+INPUT_FILE = "address.csv"
 OUTPUT_MATCHES = "geocoded_matches.csv"
 OUTPUT_UNMATCHED = "geocoded_unmatched.csv"
 
@@ -17,19 +17,19 @@ MAX_WORKERS = 10
 
 session = requests.Session()
 
-def geocode_address(org_add):
-    abbr = expand_abbreviations(org_add)
-    abbr_expanded = abbr if abbr != org_add else None
-    direc = expand_directions(org_add)
-    dir_expanded = direc if direc != org_add else None
+def geocode_address(original_address):
+    abbr_expanded = expand_abbreviations(original_address)
+    dir_expanded  = expand_directions(original_address)
 
-    full = None
+    full_expanded = None
     if abbr_expanded:
-        full_candidate = expand_directions(abbr_expanded)
-        full = full_candidate if full_candidate != abbr_expanded else None
+        full_expanded = expand_directions(abbr_expanded)
 
     # collect only the non‐None queries, original first
-    queries = [org_add] + [q for q in (abbr_expanded, dir_expanded, full) if q]
+    queries = [original_address]
+    for variant in (abbr_expanded, dir_expanded, full_expanded):
+        if variant:
+            queries.append(variant)
 
     for query in queries:
         params = {
@@ -43,15 +43,15 @@ def geocode_address(org_add):
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            return org_add, query, None, None, f"Error: {e}"
+            return original_address, query, None, None, f"Error: {e}"
 
         if data:
             lat  = data[0]['lat']
             lon  = data[0]['lon']
             name = data[0]['display_name']
-            return org_add, query, lat, lon, name
+            return original_address, query, lat, lon, name
 
-    return org_add, None, None, None, "No match"
+    return original_address, None, None, None, "No match"
         
 
 def main():
