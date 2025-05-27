@@ -1,5 +1,6 @@
 match,replace,notes
 (SB|NB) [0-9]*( TO| FRO.)?( N| S| [0-9]*)?,,San Jose
+A,Avenue,Common suffix
 AL,ALLEY,Common suffix
 ALY,ALLEY,Common suffix
 ANX,ANEX,USPS standard suffix
@@ -83,9 +84,11 @@ Jfk,John F. Kennedy,Cambridge
 JNR,Junior,Berkeley
 L,Lane,Fuzzy suffix
 L,Loop,Fuzzy suffix
+LD,Landing,Common suffix
 LN,Lane,Common suffix
 LP,Loop,Common suffix
 LK,Lake,Common suffix
+LOS CERRITO,LOS CERRITOS,San Jose
 MA,Mall,Common suffix
 Martin Luther King JR,Martin Luther King Junior,Berkeley
 Mbta,,Cambridge
