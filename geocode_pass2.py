@@ -15,9 +15,9 @@ from geofunctions import FUZZY_SUFFIXES
 
 
 # Configuration
-INPUT_FILE = "CAM_address.csv"
-OUTPUT_FILE_MATCHES = "CAM_geocoded_pass2_matches.csv"
-OUTPUT_FILE_UNMATCHED = "CAM_geocoded_pass2_unmatched.csv"
+INPUT_FILE = "STP_working.csv"
+OUTPUT_FILE_MATCHES = "STP_geocoded_pass2_matches.csv"
+OUTPUT_FILE_UNMATCHED = "STP_geocoded_pass2_unmatched.csv"
 MAX_WORKERS = 10
 API_URL = "http://localhost/nominatim/search"
 
@@ -209,19 +209,34 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
         if cy_p and cy_l:
             return ((cy_p + cy_l) / 2, (cx_p + cx_l) / 2,
                     f"PostGIS: Avg centroid {p_name} & {l_name}")
-
+    
+    # Case C: polygon & polygon – average centroids
+    if is_poly1 and is_poly2:
+        cy_1, cx_1 = get_centroid('planet_osm_polygon', street1)
+        cy_2, cx_2 = get_centroid('planet_osm_polygon', street2)
+        if cy_1 and cy_2:
+            return ((cy_1 + cy_2) / 2, (cx_1 + cx_2) / 2,
+                    f"PostGIS: Avg centroid of polygons {street1} & {street2}")
+    
     return None, None, "No PostGIS match"
 
 def _query_geocoders(address_variant, viewbox_coords_list):
-    if not '&' in address_variant:
+    address_variant = address_variant.lower()
+    if ('&' not in address_variant) and (' and ' not in address_variant):
         return try_nominatim(address_variant, viewbox_coords_list)
     else:
         conn = None
         try:
             conn = connection_pool.getconn()
-            parts = address_variant.split('&')
+            
+            if '&' in address_variant:
+                parts = address_variant.split('&')
+            else:
+                parts = address_variant.split('and')
+                
             if len(parts) < 2:
                 return None, None, f"Error: Malformed intersection '{address_variant}'"
+                
             street1 = parts[0].split(',')[0].strip()
             street2 = parts[1].split(',')[0].strip()
             return try_postgis_intersection(street1, street2, conn, viewbox_coords_list)

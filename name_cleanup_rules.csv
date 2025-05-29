@@ -1,4 +1,13 @@
 match,replace,notes
+3 st,3rd street,Saint Paul
+4 st,4th street,Saint Paul
+5 st,5th street,Saint Paul
+6 st,6th street,Saint Paul
+7 st,7th street,Saint Paul
+8 st,8th street,Saint Paul
+9 st,9th street,Saint Paul
+9th,ninth,Berkeley
+10th,tenth,Berkeley
 (SB|NB) [0-9]*( TO| FRO.)?( N| S| [0-9]*)?,,San Jose
 A,Avenue,Common suffix
 AL,ALLEY,Common suffix
@@ -29,6 +38,7 @@ CIR,Circle,Alternative abbreviation
 CIRS,CIRCLES,USPS standard suffix
 CL,Circle,Common suffix
 CLB,CLUB,USPS standard suffix
+Clement Morgan,Clement G. Morgan,Cambridge name
 CLF,CLIFF,USPS standard suffix
 CLFS,CLIFFS,USPS standard suffix
 CM,Commons,Common suffix
@@ -39,6 +49,7 @@ COR,CORNER,USPS standard suffix
 CORS,CORNERS,USPS standard suffix
 CP,CAMP,USPS standard suffix
 CPE,CAPE,USPS standard suffix
+CR,CIRCLE,Common suffix
 CRE,Creek,Common suffix
 CRES,CRESCENT,USPS standard suffix
 CRK,CREEK,USPS standard suffix
@@ -70,7 +81,8 @@ FL,Floor,Common suffix
 FRNT,Front,Common suffix
 FWY,Freeway,Common suffix
 GATOS-ALMADEN,Gatos Almaden,San Jose
-Gdns,Gardens,Cambridge
+Gdns,Gardens,Common suffix
+Gerrys,Gerry's,Cambridge name/typo
 GTWY,Gateway,Common suffix
 HBR,Harbor,Common suffix
 HL,Hill,Common suffix
@@ -78,41 +90,46 @@ HNGR,Hanger,Common suffix
 HTS,Heights,Common suffix
 HVN,Haven,Common suffix
 HWY,Highway,Common suffix
-HY,Highway,Alternative abbreviation
+HY,Highway,Common suffix
 JCT,Junction,Common suffix
-Jfk,John F. Kennedy,Cambridge
-JNR,Junior,Berkeley
+Jfk,John F. Kennedy,Cambridge name
+JNR,Junior,Berkeley name
 L,Lane,Fuzzy suffix
 L,Loop,Fuzzy suffix
 LD,Landing,Common suffix
+Linsky,Linskey,Cambridge name
 LN,Lane,Common suffix
 LP,Loop,Common suffix
 LK,Lake,Common suffix
 LOS CERRITO,LOS CERRITOS,San Jose typo
 MA,Mall,Common suffix
-Martin Luther King JR,Martin Luther King Junior,Berkeley
+Martin Luther King JR,Martin Luther King Junior,Berkeley name
 Mbta,,Cambridge
 MHP,Mobile Home Park,San Jose
-M L King JR,Martin Luther King Junior,Berkeley
+M L King JR,Martin Luther King Junior,Berkeley name
 Mt,Mount ,Convert to 'Mount' before proper name (must end with space)
 MTN,Mountain,Common Suffix
 Obrien,O'brien,Name
+oldhudson,Old Hudson,Saint Paul typo
 P,Place,Fuzzy suffix
 P,Park,Fuzzy suffix
+PA,Parkway,Common suffix
 PK,Park,Common suffix
 PKWY,Parkway,Common suffix
 PKY,Parkway,Alternative abbreviation
 PL,Place,Common suffix
 PLZ,Plaza,Common suffix
 PRK,Park,Common suffix
-PT,Point,Common Suffix
+PT,Point,Common suffix
 PY,Parkway,Alternative abbreviation
+PZ,Plaza,Common suffix
 R,Road,Common suffix
 RD,Road,Common suffix
 RNCH,Ranch,Common suffix
 RPDS,Rapids,Common suffix
 RTE,Route,Common suffix
 S,Street,Fuzzy suffix
+S,South,Fuzzy suffix
 SKWY,Skyway,Common suffix
 SQ,Square,Common suffix
 St,Saint ,Convert to 'Saint' before proper name (must end with space)
@@ -120,6 +137,7 @@ STA,Station,Common suffix
 STAT,Station,Common suffix
 TER,Terrace,Common suffix
 TERR,Terrace,Common suffix
+telegrapgh,TELEGRAPH,Berkeley typo
 TR,Terrace,Common suffix
 TPKE,Turnpike,Common suffix
 VAL,Valley,Common suffix

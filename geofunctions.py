@@ -2,14 +2,14 @@ import csv
 import re
 
 DIRECTION_MAP = {
-    r'(^|[\s,&])N(?=\s)': r'\1North',
-    r'(^|[\s,&])E(?=\s)': r'\1East',
-    r'(^|[\s,&])S(?=\s)': r'\1South',
-    r'(^|[\s,&])W(?=\s)': r'\1West',
-    r'(^|[\s,&])NE(?=\s)': r'\1Northeast',
-    r'(^|[\s,&])SE(?=\s)': r'\1Southeast',
-    r'(^|[\s,&])NW(?=\s)': r'\1Northwest',
-    r'(^|[\s,&])SW(?=\s)': r'\1Southwest'
+    r'(^|[\s,&])N(?=(\s|,))': r'\1North',
+    r'(^|[\s,&])E(?=(\s|,))': r'\1East',
+    r'(^|[\s,&])S(?=(\s|,))': r'\1South',
+    r'(^|[\s,&])W(?=(\s|,))': r'\1West',
+    r'(^|[\s,&])NE(?=(\s|,))': r'\1Northeast',
+    r'(^|[\s,&])SE(?=(\s|,))': r'\1Southeast',
+    r'(^|[\s,&])NW(?=(\s|,))': r'\1Northwest',
+    r'(^|[\s,&])SW(?=(\s|,))': r'\1Southwest'
 }
 FUZZY_SUFFIXES = ['C', 'P', 'L', 'S']
 
@@ -20,16 +20,17 @@ def load_cleanup_rules(csv_path):
         for row in reader:
             raw_match = row['match'].strip()
             replacement = row['replace']
+            notes = row['notes']
             if not raw_match:
                 continue
-
+            # St followed by 1 letter could actually be "street {direction}"
             if raw_match in ['St', 'Mt']:
-                pattern = rf'\b{raw_match}\s+(?=[A-Z])'
+                pattern = rf'\b{raw_match}\s+(?=[A-Z]{2,})'
             else:
                 pattern = fr'\b{raw_match}\b'
 
             # Append tuple: (raw_match, regex_pattern, replacement)
-            cleanup_list.append((raw_match, pattern, replacement))
+            cleanup_list.append((raw_match, pattern, replacement, notes))
     return cleanup_list
     
 def load_viewboxes(file_path):
@@ -54,7 +55,7 @@ def expand_abbreviations(address):
     base   = ','.join(parts[:-2]) if len(parts) >= 3 else address
     suffix = ', ' + parts[-2] + ', ' + parts[-1] if len(parts) >= 3 else ''
 
-    for raw, pattern, replacement in NAME_CLEANUP_MAP:
+    for raw, pattern, replacement, note in NAME_CLEANUP_MAP:
         if raw in FUZZY_SUFFIXES:
             continue
         base = re.sub(pattern, replacement, base, flags=re.IGNORECASE)
@@ -74,10 +75,13 @@ def remove_suffix(address):
     base   = ','.join(parts[:-1]) if len(parts) >= 2 else address
     suffix = ', ' + parts[-1] if len(parts) >= 2 else ''
     
-    for raw, pattern, replacement in NAME_CLEANUP_MAP:
+    for raw, pattern, replacement, note in NAME_CLEANUP_MAP:
         if raw in FUZZY_SUFFIXES:
             continue
-        base = re.sub(fr'\b{replacement}\b', "", base, flags=re.IGNORECASE)
+        # only remove suffixes type of expansion, so names/typos, etc untouched
+        if 'suffix' not in note.lower():
+            continue
+        base = re.sub(fr'\b{replacement}(?=(\s&|&|,|$))', "", base, flags=re.IGNORECASE)
         
     removed = re.sub(r'\s+', ' ', base).strip() + suffix
     if removed.lower() == address.lower():
