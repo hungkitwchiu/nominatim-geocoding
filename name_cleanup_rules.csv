@@ -13,10 +13,12 @@ A,Avenue,Common suffix
 AL,ALLEY,Common suffix
 ALY,ALLEY,Common suffix
 ANX,ANEX,USPS standard suffix
+AR,Arch,Common suffix
 ARC,ARCADE,USPS standard suffix
 AV,Avenue,Common suffix
 AVE,Avenue,Alternative abbreviation
 BCH,BEACH,USPS standard suffix
+BD,Boulevard,Common suffix
 BG,BURG,USPS standard suffix
 BGS,BURGS,USPS standard suffix
 BL,Boulevard,Common suffix
@@ -41,6 +43,7 @@ CLB,CLUB,USPS standard suffix
 Clement Morgan,Clement G. Morgan,Cambridge name
 CLF,CLIFF,USPS standard suffix
 CLFS,CLIFFS,USPS standard suffix
+CLOS,Close,Common suffix
 CM,Commons,Common suffix
 CMMN,Common,Common suffix
 CMN,Commons,Common suffix
@@ -55,7 +58,7 @@ CRES,CRESCENT,USPS standard suffix
 CRK,CREEK,USPS standard suffix
 CRSE,COURSE,USPS standard suffix
 CRST,CREST,USPS standard suffix
-CSWY,CAUSEWAY,USPS standard suffix
+CSWY,Causeway,USPS standard suffix
 CT,Court,Common suffix
 CTR,Center,Common suffix
 CTRS,CENTERS,USPS standard suffix
@@ -63,12 +66,14 @@ CTS,COURTS,USPS standard suffix
 CURV,CURVE,USPS standard suffix
 CV,COVE,USPS standard suffix
 CVS,COVES,USPS standard suffix
+CY,Court,Virginia Beach
 CYN,CANYON,USPS standard suffix
 D,Drive,Abbreviation of Drive
 Dead End,,San Jose
 DE00 END,,Berkeley
 DL,DALE,USPS standard suffix
 DM,DAM,USPS standard suffix
+DONS,Downs,Common suffix
 DR,Drive,Common suffix
 DRS,DRIVES,USPS standard suffix
 DV,DIVIDE,USPS standard suffix
@@ -94,6 +99,7 @@ HY,Highway,Common suffix
 JCT,Junction,Common suffix
 Jfk,John F. Kennedy,Cambridge name
 JNR,Junior,Berkeley name
+KY,Key,Common suffix
 L,Lane,Fuzzy suffix
 L,Loop,Fuzzy suffix
 LD,Landing,Common suffix
@@ -109,6 +115,7 @@ MHP,Mobile Home Park,San Jose
 M L King JR,Martin Luther King Junior,Berkeley name
 Mt,Mount ,Convert to 'Mount' before proper name (must end with space)
 MTN,Mountain,Common Suffix
+New La Grange,New Lagrange,Louisville name/typo
 Obrien,O'brien,Name
 oldhudson,Old Hudson,Saint Paul typo
 P,Place,Fuzzy suffix
@@ -125,11 +132,13 @@ PY,Parkway,Alternative abbreviation
 PZ,Plaza,Common suffix
 R,Road,Common suffix
 RD,Road,Common suffix
+RECH,Reach,Common suffix
 RNCH,Ranch,Common suffix
 RPDS,Rapids,Common suffix
 RTE,Route,Common suffix
 S,Street,Fuzzy suffix
 S,South,Fuzzy suffix
+SC,Shopping Center,Common suffix
 SKWY,Skyway,Common suffix
 SQ,Square,Common suffix
 St,Saint ,Convert to 'Saint' before proper name (must end with space)
@@ -139,10 +148,14 @@ TER,Terrace,Common suffix
 TERR,Terrace,Common suffix
 telegrapgh,TELEGRAPH,Berkeley typo
 TR,Terrace,Common suffix
+TRL,Trail,Common suffix
 TPKE,Turnpike,Common suffix
+VANDYKE,Van Dyke,Saint Paul name/typo
+VANBUREN,Van Buren,Saint Paul name/typo
 VAL,Valley,Common suffix
 VLG,Village,Common suffix
 VLY,Valley,Common suffix
+whitebear,White Bear,Saint Paul typo
 WW,Walkway,Common suffix
 WY,Way,Common suffix
 XING,CROSSING,USPS standard suffix

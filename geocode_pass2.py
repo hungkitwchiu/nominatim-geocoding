@@ -5,19 +5,14 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 
-from geofunctions import load_cleanup_rules
-from geofunctions import expand_abbreviations
-from geofunctions import expand_directions
-from geofunctions import remove_suffix
-from geofunctions import VIEWBOX_DICT
-from geofunctions import NAME_CLEANUP_MAP
-from geofunctions import FUZZY_SUFFIXES
+from geofunctions import expand_abbreviations, expand_directions, remove_suffix
+from geofunctions import VIEWBOX_DICT, NAME_CLEANUP_MAP, FUZZY_SUFFIXES
 
 
 # Configuration
-INPUT_FILE = "STP_working.csv"
-OUTPUT_FILE_MATCHES = "STP_geocoded_pass2_matches.csv"
-OUTPUT_FILE_UNMATCHED = "STP_geocoded_pass2_unmatched.csv"
+INPUT_FILE = "VB_address.csv"
+OUTPUT_FILE_MATCHES = "VB_geocoded_pass2_matches.csv"
+OUTPUT_FILE_UNMATCHED = "VB_geocoded_pass2_unmatched.csv"
 MAX_WORKERS = 10
 API_URL = "http://localhost/nominatim/search"
 

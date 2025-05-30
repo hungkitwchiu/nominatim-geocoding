@@ -25,7 +25,7 @@ def load_cleanup_rules(csv_path):
                 continue
             # St followed by 1 letter could actually be "street {direction}"
             if raw_match in ['St', 'Mt']:
-                pattern = rf'\b{raw_match}\s+(?=[A-Z]{2,})'
+                pattern = fr'\b{raw_match}\b(?=\s+[A-Za-z]{{2,}})'
             else:
                 pattern = fr'\b{raw_match}\b'
 
@@ -76,13 +76,14 @@ def remove_suffix(address):
     suffix = ', ' + parts[-1] if len(parts) >= 2 else ''
     
     for raw, pattern, replacement, note in NAME_CLEANUP_MAP:
-        if raw in FUZZY_SUFFIXES:
-            continue
+        #if raw in FUZZY_SUFFIXES:
+        #    continue
         # only remove suffixes type of expansion, so names/typos, etc untouched
         if 'suffix' not in note.lower():
             continue
         base = re.sub(fr'\b{replacement}(?=(\s&|&|,|$))', "", base, flags=re.IGNORECASE)
-        
+    
+    # removed = re.sub(r'\bStreet(?=(\s|&|,|$))', '', base, flags=re.IGNORECASE)    
     removed = re.sub(r'\s+', ' ', base).strip() + suffix
     if removed.lower() == address.lower():
         return None
