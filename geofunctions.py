@@ -20,17 +20,19 @@ def load_cleanup_rules(csv_path):
         for row in reader:
             raw_match = row['match'].strip()
             replacement = row['replace']
-            notes = row['notes']
+            note = row['notes']
             if not raw_match:
                 continue
             # St followed by 1 letter could actually be "street {direction}"
             if raw_match in ['St', 'Mt']:
                 pattern = fr'\b{raw_match}\b(?=\s+[A-Za-z]{{2,}})'
+            elif "no-boundary" in note:
+                pattern = fr'{raw_match}'
             else:
                 pattern = fr'\b{raw_match}\b'
 
             # Append tuple: (raw_match, regex_pattern, replacement)
-            cleanup_list.append((raw_match, pattern, replacement, notes))
+            cleanup_list.append((raw_match, pattern, replacement, note))
     return cleanup_list
     
 def load_viewboxes(file_path):

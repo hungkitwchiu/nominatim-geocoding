@@ -4,12 +4,15 @@ match,replace,notes
 5 st,5th street,Saint Paul
 6 st,6th street,Saint Paul
 7 st,7th street,Saint Paul
+7 pl,7th place,Saint Paul
 8 st,8th street,Saint Paul
 9 st,9th street,Saint Paul
-9th,ninth,Berkeley
-10th,tenth,Berkeley
+10 st,10th street,Saint Paul
+11 st,11th street,Saint Paul
+12 st,12th street,Saint Paul
 (SB|NB) [0-9]*( TO| FRO.)?( N| S| [0-9]*)?,,San Jose
 A,Avenue,Common suffix
+After,,Virginia Beach
 AL,ALLEY,Common suffix
 ALY,ALLEY,Common suffix
 ANX,ANEX,USPS standard suffix
@@ -19,6 +22,7 @@ AV,Avenue,Common suffix
 AVE,Avenue,Alternative abbreviation
 BCH,BEACH,USPS standard suffix
 BD,Boulevard,Common suffix
+Before,,Virginia Beach
 BG,BURG,USPS standard suffix
 BGS,BURGS,USPS standard suffix
 BL,Boulevard,Common suffix
@@ -32,10 +36,13 @@ BRG,BRIDGE,USPS standard suffix
 BRK,BROOK,USPS standard suffix
 BRKS,BROOKS,USPS standard suffix
 BTM,BOTTOM,USPS standard suffix
+BOARDWALK BW,Boardwalk,Virginia Beach name
 BYP,BYPASS,USPS standard suffix
 BYU,BAYOU,USPS standard suffix
 C,Circle,Fuzzy suffix
 C,Court,Fuzzy suffix
+CHAS,Chase,Common suffix
+CI,Circle,Common suffix
 CIR,Circle,Alternative abbreviation
 CIRS,CIRCLES,USPS standard suffix
 CL,Circle,Common suffix
@@ -48,6 +55,7 @@ CM,Commons,Common suffix
 CMMN,Common,Common suffix
 CMN,Commons,Common suffix
 CMNS,COMMONS,USPS standard suffix
+COM,Common,Common suffix
 COR,CORNER,USPS standard suffix
 CORS,CORNERS,USPS standard suffix
 CP,CAMP,USPS standard suffix
@@ -77,6 +85,7 @@ DONS,Downs,Common suffix
 DR,Drive,Common suffix
 DRS,DRIVES,USPS standard suffix
 DV,DIVIDE,USPS standard suffix
+ENERGYPARK,Energy Park,Saint Paul
 EST,ESTATE,USPS standard suffix
 ESTS,ESTATES,USPS standard suffix
 EX,Expressway,Common suffix
@@ -105,6 +114,7 @@ L,Loop,Fuzzy suffix
 LD,Landing,Common suffix
 Linsky,Linskey,Cambridge name
 LN,Lane,Common suffix
+LNDG,Landing,Common suffix
 LP,Loop,Common suffix
 LK,Lake,Common suffix
 LOS CERRITO,LOS CERRITOS,San Jose typo
@@ -112,15 +122,19 @@ MA,Mall,Common suffix
 Martin Luther King JR,Martin Luther King Junior,Berkeley name
 Mbta,,Cambridge
 MHP,Mobile Home Park,San Jose
+MISSISSIPPIRIVER,MISSISSIPPI RIVER,Saint Paul name
 M L King JR,Martin Luther King Junior,Berkeley name
 Mt,Mount ,Convert to 'Mount' before proper name (must end with space)
+MTHOPE,Mount Hope,Saint Paul
 MTN,Mountain,Common Suffix
 New La Grange,New Lagrange,Louisville name/typo
 Obrien,O'brien,Name
+OCEANFRONT,Ocean Front,Virginia Beach name
 oldhudson,Old Hudson,Saint Paul typo
 P,Place,Fuzzy suffix
 P,Park,Fuzzy suffix
 PA,Parkway,Common suffix
+PIERCEBUTLER,Pierce Butler,Saint Paul
 PK,Park,Common suffix
 PKWY,Parkway,Common suffix
 PKY,Parkway,Alternative abbreviation
@@ -128,6 +142,7 @@ PL,Place,Common suffix
 PLZ,Plaza,Common suffix
 PRK,Park,Common suffix
 PT,Point,Common suffix
+PW,Parkway,Common suffix
 PY,Parkway,Alternative abbreviation
 PZ,Plaza,Common suffix
 R,Road,Common suffix
@@ -138,21 +153,33 @@ RPDS,Rapids,Common suffix
 RTE,Route,Common suffix
 S,Street,Fuzzy suffix
 S,South,Fuzzy suffix
-SC,Shopping Center,Common suffix
+SC,,Virginia Beach (shopping center)
 SKWY,Skyway,Common suffix
 SQ,Square,Common suffix
 St,Saint ,Convert to 'Saint' before proper name (must end with space)
 STA,Station,Common suffix
 STAT,Station,Common suffix
+STCLAIR,Saint Clair,Saint Paul name
+STALBANS,Saint Albans,Saint Paul name
+STANTHONY,Saint Anthony,Saint Paul name
+STPAUL,Saint Paul,Saint Paul name
+STPETER,Saint Peter,Saint Paul name
+STRYKER,Saint Ryker,Saint Paul name
 TER,Terrace,Common suffix
 TERR,Terrace,Common suffix
 telegrapgh,TELEGRAPH,Berkeley typo
+th Half st, 1/2 street,Virginia Beach name/no-boundary
+st half st, 1/2 street,Virginia Beach name/no-boundary
+nd half st, 1/2 street,Virginia Beach name/no-boundary
+rd half st, 1/2 street,Virginia Beach name/no-boundary
 TR,Terrace,Common suffix
 TRL,Trail,Common suffix
 TPKE,Turnpike,Common suffix
+UPPERAFTON,UPPER AFTON,Saint Paul
 VANDYKE,Van Dyke,Saint Paul name/typo
 VANBUREN,Van Buren,Saint Paul name/typo
 VAL,Valley,Common suffix
+VBB,Virginia Beach Boulevard,Virginia Beach
 VLG,Village,Common suffix
 VLY,Valley,Common suffix
 whitebear,White Bear,Saint Paul typo

@@ -10,9 +10,9 @@ from geofunctions import VIEWBOX_DICT, NAME_CLEANUP_MAP, FUZZY_SUFFIXES
 
 
 # Configuration
-INPUT_FILE = "VB_address.csv"
-OUTPUT_FILE_MATCHES = "VB_geocoded_pass2_matches.csv"
-OUTPUT_FILE_UNMATCHED = "VB_geocoded_pass2_unmatched.csv"
+INPUT_FILE = "STP_address.csv"
+OUTPUT_FILE_MATCHES = "STP_geocoded_pass2_matches.csv"
+OUTPUT_FILE_UNMATCHED = "STP_geocoded_pass2_unmatched.csv"
 MAX_WORKERS = 10
 API_URL = "http://localhost/nominatim/search"
 
