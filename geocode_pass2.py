@@ -10,9 +10,9 @@ from geofunctions import VIEWBOX_DICT, NAME_CLEANUP_MAP, FUZZY_SUFFIXES
 
 
 # Configuration
-INPUT_FILE = "STP_address.csv"
-OUTPUT_FILE_MATCHES = "STP_geocoded_pass2_matches.csv"
-OUTPUT_FILE_UNMATCHED = "STP_geocoded_pass2_unmatched.csv"
+INPUT_FILE = "BER_address.csv"
+OUTPUT_FILE_MATCHES = "BER_geocoded_pass2_matches.csv"
+OUTPUT_FILE_UNMATCHED = "BER_geocoded_pass2_unmatched.csv"
 MAX_WORKERS = 10
 API_URL = "http://localhost/nominatim/search"
 
@@ -39,6 +39,47 @@ def remove_city(address):
     new_list = parts[:-2] + parts[-1:]
     # lower to indicate this is a latter variant
     return ",".join(new_list).strip().lower()
+    
+def exists_in(db_conn, table, name, envelope_sql, bbox_params):
+    sql = f"""
+        SELECT EXISTS(
+          SELECT 1
+            FROM {table}
+           WHERE unaccent(name) ILIKE unaccent(%s)
+             AND ST_Intersects(way, {envelope_sql})
+        );
+    """
+    params = [f"%{name}%"] + bbox_params
+    with db_conn.cursor() as cur:
+        cur.execute(sql, params)
+        return cur.fetchone()[0]
+
+
+def get_centroid(db_conn, table, name, envelope_sql, bbox_params):
+    if table == 'planet_osm_line':
+        centroid_sql = f"""
+            SELECT ST_Centroid(ST_Union(way))
+              FROM planet_osm_line
+             WHERE unaccent(name) ILIKE unaccent(%s)
+               AND ST_Intersects(way, {envelope_sql});
+        """
+    else:
+        centroid_sql = f"""
+            SELECT ST_Centroid(way)
+              FROM planet_osm_polygon
+             WHERE unaccent(name) ILIKE unaccent(%s)
+               AND ST_Intersects(way, {envelope_sql});
+        """
+    params = [f"%{name}%"] + bbox_params
+    with db_conn.cursor() as cur:
+        cur.execute(centroid_sql, params)
+        geom = cur.fetchone()[0]
+
+    if geom:
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT ST_Y(%s), ST_X(%s);", (geom, geom))
+            return cur.fetchone()
+    return None, None
 
 def try_nominatim(address_to_query, viewbox_coords_list):
     # pass if viebox_coords_list is empty
@@ -57,82 +98,39 @@ def try_nominatim(address_to_query, viewbox_coords_list):
         return None, None, f"Nominatim error: {e}"
 
 def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
-    """
-    Returns (lat, lon, msg) if both features are inside the viewbox,
-    or (None, None, reason) otherwise.
-    """
     if not viewbox_coords:
         return None, None, "Skipped: No viewbox for PostGIS"
     if street1 == "" or street2 == "":
         return None, None, "Skipped: Empty street"
-    # Unpack viewbox
+
     min_lon, min_lat, max_lon, max_lat = viewbox_coords
     envelope_sql = "ST_MakeEnvelope(%s, %s, %s, %s, 4326)"
     bbox_params = [min_lon, min_lat, max_lon, max_lat]
 
-    def exists_in(table, name):
-        sql = f"""
-            SELECT EXISTS(
-              SELECT 1 FROM {table}
-              WHERE unaccent(name) ILIKE unaccent(%s)
-                AND ST_Intersects(way, {envelope_sql})
-            );
-        """
-        params = [f"%{name}%"] + bbox_params
-        with db_conn.cursor() as cur:
-            cur.execute(sql, params)
-            return cur.fetchone()[0]
+    # Detect feature existence
+    is_line1 = exists_in(db_conn, "planet_osm_line",    street1, envelope_sql, bbox_params)
+    is_poly1 = exists_in(db_conn, "planet_osm_polygon", street1, envelope_sql, bbox_params)
+    is_line2 = exists_in(db_conn, "planet_osm_line",    street2, envelope_sql, bbox_params)
+    is_poly2 = exists_in(db_conn, "planet_osm_polygon", street2, envelope_sql, bbox_params)
 
-    # Detect feature types
-    is_line1 = exists_in("planet_osm_line",    street1)
-    is_poly1 = exists_in("planet_osm_polygon", street1)
-    is_line2 = exists_in("planet_osm_line",    street2)
-    is_poly2 = exists_in("planet_osm_polygon", street2)
-
-    # Ensure both are present
     if not ((is_line1 or is_poly1) and (is_line2 or is_poly2)):
         return None, None, f"PostGIS: '{street1}' or '{street2}' not in viewbox"
 
-    # Helper: get centroid of matching geometries
-    def get_centroid(table, name):
-        if table == 'planet_osm_line':
-            sql = f"""
-                SELECT ST_Centroid(ST_Union(way))
-                FROM planet_osm_line
-                WHERE unaccent(name) ILIKE unaccent(%s)
-                  AND ST_Intersects(way, {envelope_sql});
-            """
-        else:
-            sql = f"""
-                SELECT ST_Centroid(way)
-                FROM planet_osm_polygon
-                WHERE unaccent(name) ILIKE unaccent(%s)
-                  AND ST_Intersects(way, {envelope_sql});
-            """
-        params = [f"%{name}%"] + bbox_params
-        with db_conn.cursor() as cur:
-            cur.execute(sql, params)
-            geom = cur.fetchone()[0]
-        if geom:
-            with db_conn.cursor() as cur:
-                cur.execute("SELECT ST_Y(%s), ST_X(%s);", (geom, geom))
-                return cur.fetchone()
-        return None, None
-
-    # Case A: both lines
+    # Case A: Two lines
     if is_line1 and is_line2:
-        # 1) exact intersection
+        # 1) Exact intersection
         inter_sql = f"""
             SELECT ST_Y(pt), ST_X(pt) FROM (
               SELECT (ST_Dump(ST_Intersection(l1.way, l2.way))).geom AS pt
-              FROM planet_osm_line l1, planet_osm_line l2
-              WHERE unaccent(l1.name) ILIKE unaccent(%s)
-                AND unaccent(l2.name) ILIKE unaccent(%s)
-                AND ST_Intersects(l1.way, l2.way)
-                AND ST_Intersects(l1.way, {envelope_sql})
+                FROM planet_osm_line AS l1,
+                     planet_osm_line AS l2
+               WHERE unaccent(l1.name) ILIKE unaccent(%s)
+                 AND unaccent(l2.name) ILIKE unaccent(%s)
+                 AND ST_Intersects(l1.way, l2.way)
+                 AND ST_Intersects(l1.way, {envelope_sql})
             ) sub
-            WHERE GeometryType(pt)='POINT'
-            LIMIT 1;
+           WHERE GeometryType(pt)='POINT'
+           LIMIT 1;
         """
         params = [f"%{street1}%", f"%{street2}%"] + bbox_params
         with db_conn.cursor() as cur:
@@ -141,78 +139,80 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
         if row:
             return row[0], row[1], f"PostGIS: Intersection {street1} & {street2}"
 
-        # 2) buffer-based fallback; ON ST_DWithin takes BUFFER_DISTANCE
+        # 2) Buffer‐based fallback
         buffer_sql = f"""
           WITH nearest AS (
             SELECT
-              ST_Distance(w1.way, w2.way) AS dist,
-              ST_ClosestPoint(w1.way, w2.way) AS cp
-            FROM planet_osm_line AS w1
-            JOIN planet_osm_line AS w2
-              ON ST_DWithin(w1.way, w2.way, %s)
-            WHERE unaccent(w1.name) ILIKE unaccent(%s)
-              AND unaccent(w2.name) ILIKE unaccent(%s)
-              AND ST_Intersects(w1.way, {envelope_sql})
-              AND ST_Intersects(w2.way, {envelope_sql})
+              ST_Distance(w1.way, w2.way)      AS dist,
+              ST_ClosestPoint(w1.way, w2.way)  AS cp
+              FROM planet_osm_line AS w1
+              JOIN planet_osm_line AS w2
+                ON ST_DWithin(w1.way, w2.way, %s)
+             WHERE unaccent(w1.name) ILIKE unaccent(%s)
+               AND unaccent(w2.name) ILIKE unaccent(%s)
+               AND ST_Intersects(w1.way, {envelope_sql})
+               AND ST_Intersects(w2.way, {envelope_sql})
           )
           SELECT ST_Y(cp), ST_X(cp)
-          FROM nearest
-          ORDER BY dist
-          LIMIT 1;
+            FROM nearest
+           ORDER BY dist
+           LIMIT 1;
         """
-        params = [BUFFER_DISTANCE, f"%{street1}%", f"%{street2}%"] + bbox_params * 2
+        params = [BUFFER_DISTANCE, f"%{street1}%", f"%{street2}%"] + (bbox_params * 2)
         with db_conn.cursor() as cur:
             cur.execute(buffer_sql, params)
             row = cur.fetchone()
         if row:
             return row[0], row[1], f"PostGIS: False intersection {street1} & {street2}"
 
-        # 3) avg centroids fallback
-        cy1, cx1 = get_centroid('planet_osm_line', street1)
-        cy2, cx2 = get_centroid('planet_osm_line', street2)
+        # 3) Average centroids
+        cy1, cx1 = get_centroid(db_conn, 'planet_osm_line', street1, envelope_sql, bbox_params)
+        cy2, cx2 = get_centroid(db_conn, 'planet_osm_line', street2, envelope_sql, bbox_params)
         if cy1 and cy2:
             return ((cy1 + cy2) / 2, (cx1 + cx2) / 2,
                     f"PostGIS: Avg centroid {street1} & {street2}")
 
-    # Case B: polygon & line – buffer-based centroid
+    # Case B: Polygon & Line
     if (is_poly1 and is_line2) or (is_line1 and is_poly2):
-        p_name, l_name = (street1, street2) if is_poly1 else (street2, street1)
-        # 1) buffer-based false intersection
+        if is_poly1:
+            p_name, l_name = street1, street2
+        else:
+            p_name, l_name = street2, street1
+
         poly_buffer_sql = f"""
             SELECT ST_Y(ST_Centroid(ST_Union(poly.way))),
                    ST_X(ST_Centroid(ST_Union(poly.way)))
-            FROM planet_osm_polygon AS poly
-            JOIN planet_osm_line    AS line
-              ON ST_DWithin(ST_Boundary(poly.way), line.way, %s)
-            WHERE unaccent(poly.name) ILIKE unaccent(%s)
-              AND unaccent(line.name) ILIKE unaccent(%s)
-              AND ST_Intersects(poly.way, {envelope_sql})
-              AND ST_Intersects(line.way, {envelope_sql})
-            GROUP BY poly.osm_id, line.osm_id
-            LIMIT 1;
+              FROM planet_osm_polygon AS poly
+              JOIN planet_osm_line    AS line
+                ON ST_DWithin(ST_Boundary(poly.way), line.way, %s)
+             WHERE unaccent(poly.name) ILIKE unaccent(%s)
+               AND unaccent(line.name) ILIKE unaccent(%s)
+               AND ST_Intersects(poly.way, {envelope_sql})
+               AND ST_Intersects(line.way, {envelope_sql})
+             GROUP BY poly.osm_id, line.osm_id
+             LIMIT 1;
         """
-        params = [BUFFER_DISTANCE, f"%{p_name}%", f"%{l_name}%"] + bbox_params * 2
+        params = [BUFFER_DISTANCE, f"%{p_name}%", f"%{l_name}%"] + (bbox_params * 2)
         with db_conn.cursor() as cur:
             cur.execute(poly_buffer_sql, params)
             row = cur.fetchone()
         if row and row[0] is not None:
             return row[0], row[1], f"PostGIS: Buffer intersection {p_name} & {l_name}"
 
-        # 2) avg centroids fallback
-        cy_p, cx_p = get_centroid('planet_osm_polygon', p_name)
-        cy_l, cx_l = get_centroid('planet_osm_line',    l_name)
+        cy_p, cx_p = get_centroid(db_conn, 'planet_osm_polygon', p_name, envelope_sql, bbox_params)
+        cy_l, cx_l = get_centroid(db_conn, 'planet_osm_line',    l_name, envelope_sql, bbox_params)
         if cy_p and cy_l:
             return ((cy_p + cy_l) / 2, (cx_p + cx_l) / 2,
                     f"PostGIS: Avg centroid {p_name} & {l_name}")
-    
-    # Case C: polygon & polygon – average centroids
+
+    # Case C: Polygon & Polygon
     if is_poly1 and is_poly2:
-        cy_1, cx_1 = get_centroid('planet_osm_polygon', street1)
-        cy_2, cx_2 = get_centroid('planet_osm_polygon', street2)
-        if cy_1 and cy_2:
-            return ((cy_1 + cy_2) / 2, (cx_1 + cx_2) / 2,
+        cy1, cx1 = get_centroid(db_conn, 'planet_osm_polygon', street1, envelope_sql, bbox_params)
+        cy2, cx2 = get_centroid(db_conn, 'planet_osm_polygon', street2, envelope_sql, bbox_params)
+        if cy1 and cy2:
+            return ((cy1 + cy2) / 2, (cx1 + cx2) / 2,
                     f"PostGIS: Avg centroid of polygons {street1} & {street2}")
-    
+
     return None, None, "No PostGIS match"
 
 def _query_geocoders(address_variant, viewbox_coords_list):
