@@ -8,12 +8,11 @@ import re
 from geofunctions import expand_abbreviations, expand_directions, remove_suffix
 from geofunctions import VIEWBOX_DICT, NAME_CLEANUP_MAP, FUZZY_SUFFIXES
 
-
 # Configuration
-INPUT_FILE = "BER_address.csv"
-OUTPUT_FILE_MATCHES = "BER_geocoded_pass2_matches.csv"
-OUTPUT_FILE_UNMATCHED = "BER_geocoded_pass2_unmatched.csv"
-MAX_WORKERS = 10
+INPUT_FILE = "STP_address.csv"
+OUTPUT_FILE_MATCHES = "STP_geocoded_matches.csv"
+OUTPUT_FILE_UNMATCHED = "STP_geocoded_unmatched.csv"
+MAX_WORKERS = 12
 API_URL = "http://localhost/nominatim/search"
 
 DB_PARAMS = {
@@ -217,7 +216,7 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
 
 def _query_geocoders(address_variant, viewbox_coords_list):
     address_variant = address_variant.lower()
-    if ('&' not in address_variant) and (' and ' not in address_variant):
+    if ('&' not in address_variant) and (' and ' not in address_variant) and ('/' not in address_variant):
         return try_nominatim(address_variant, viewbox_coords_list)
     else:
         conn = None
@@ -226,8 +225,10 @@ def _query_geocoders(address_variant, viewbox_coords_list):
             
             if '&' in address_variant:
                 parts = address_variant.split('&')
+            elif ' and ' in address_variant:
+                parts = address_variant.split(' and ')
             else:
-                parts = address_variant.split('and')
+                parts = address_variant.split('/')
                 
             if len(parts) < 2:
                 return None, None, f"Error: Malformed intersection '{address_variant}'"
@@ -248,10 +249,7 @@ def process_address(original_address, VIEWBOX_DICT):
     
     abbr_expanded = expand_abbreviations(original_address)
     dir_expanded  = expand_directions(original_address)
-    
-    full_expanded = None
-    if abbr_expanded:
-        full_expanded = expand_directions(abbr_expanded)
+    full_expanded = expand_directions(abbr_expanded) if abbr_expanded else None
         
     # add fall back: remove city, remove suffix (?)
     queries = [original_address]

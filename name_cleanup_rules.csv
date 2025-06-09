@@ -10,6 +10,7 @@ match,replace,notes
 10 st,10th street,Saint Paul
 11 st,11th street,Saint Paul
 12 st,12th street,Saint Paul
+10th,tenth,Berkeley
 (SB|NB) [0-9]*( TO| FRO.)?( N| S| [0-9]*)?,,San Jose
 A,Avenue,Common suffix
 After,,Virginia Beach
@@ -124,6 +125,7 @@ Mbta,,Cambridge
 MHP,Mobile Home Park,San Jose
 MISSISSIPPIRIVER,MISSISSIPPI RIVER,Saint Paul name
 M L King JR,Martin Luther King Junior,Berkeley name
+MLK,Martin Luther King,Berkeley name
 Mt,Mount ,Convert to 'Mount' before proper name (must end with space)
 MTHOPE,Mount Hope,Saint Paul
 MTN,Mountain,Common Suffix
@@ -131,6 +133,7 @@ New La Grange,New Lagrange,Louisville name/typo
 Obrien,O'brien,Name
 OCEANFRONT,Ocean Front,Virginia Beach name
 oldhudson,Old Hudson,Saint Paul typo
+OXFORD ST N,North Oxford Street,Saint Paul
 P,Place,Fuzzy suffix
 P,Park,Fuzzy suffix
 PA,Parkway,Common suffix
@@ -188,3 +191,33 @@ WY,Way,Common suffix
 XING,CROSSING,USPS standard suffix
 XRD,CROSSROAD,USPS standard suffix
 XRDS,CROSSROADS,USPS standard suffix
+Nickoles,Nicholas,Norfolk name/typo
+ BLK,,Norfolk
+B00,Bay,Berkeley name/typo
+S00 PABLO,San Pablo,Berkeley name/typo
+MCG00,MCGEE,Berkeley name/typo
+RO00,Rose,Berkeley name/typo
+WE00 FRONTAGE,West Frontage,Berkeley name/typo
+SAN00 FE,Santa Fe,Berkeley name/typo
+SAN00 BARBARA,Santa Barbara,Berkeley name/typo
+ASH00,Ashby,Berkeley name/typo
+BLA00,Blake,Berkeley name/typo
+DA00,Dana,Berkeley name/typo
+DO00,Dohr,Berkeley name/typo
+DER00,Derby,Berkeley name/typo
+CED00,Cedar,Berkeley name/typo
+TEN00,Tenth,Berkeley name/typo
+NIN00,Ninth,Berkeley name/typo
+M00 JR,Martin Luther King Junior,Berkeley name/typo
+HAS00,Haste,Berkeley name/typo
+PA00,Page,Berkeley name/typo
+ACT00,Acton,Berkeley name/typo
+ET00,Eton,Berkeley name/typo
+DOV00,Dover,Berkeley name/typo
+MAR00,Marin,Berkeley name/typo
+HEN00,Henry,Berkeley name/typo
+WA00,Ward,Berkeley name/typo
+CIV00,Civic,Berkeley name/typo
+ESS00,Essex,Berkeley name/typo
+SPINANNAKER,SPINNAKER,Berkeley name/typo
+
