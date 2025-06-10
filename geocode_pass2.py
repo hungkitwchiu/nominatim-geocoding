@@ -79,15 +79,14 @@ def get_centroid(db_conn, table, name, envelope_sql, bbox_params):
             return cur.fetchone()
     return None, None
 
-def try_nominatim(address_to_query, viewbox_coords_list):
-    # pass if viebox_coords_list is empty
-    if viewbox_coords_list is None: return None, None, "Skipped: No viewbox for Nominatim"
+def try_nominatim(address_to_query, viewbox_coords):
+    # should be redundant but kept for robustness; viewbox is enforced in main()
+    if viewbox_coords is None: return None, None, "Skipped: No viewbox for Nominatim"
     try:
-        left, top, right, bottom = viewbox_coords_list
-        viewbox_str_for_api = f"{left},{top},{right},{bottom}"
+        left, top, right, bottom = viewbox_coords
         response = requests.get(API_URL, params={
             "q": address_to_query, "format": "json", "limit": 1,
-            "viewbox": viewbox_str_for_api, "bounded": 1
+            "viewbox": f"{left},{top},{right},{bottom}", "bounded": 1
         })
         response.raise_for_status()
         data = response.json()
@@ -95,8 +94,74 @@ def try_nominatim(address_to_query, viewbox_coords_list):
     except Exception as e:
         return None, None, f"Nominatim error: {e}"
 
+def split_intersection(address):
+    parts = re.split(r'\s*(?:&| and |/)\s*', address, maxsplit=1, flags=re.IGNORECASE)
+    street1 = parts[0].split(',')[0].strip()
+    street2 = parts[1].split(',')[0].strip()
+    return street1, street2
+
+def find_similar_street(street, db_conn, viewbox_coords, max_dist=1, top_n=1):
+    sql = """
+    WITH raw_candidates AS (
+      SELECT
+        name,
+        lower(name) AS name_lc,
+        way AS geom
+      FROM planet_osm_line
+      WHERE way && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
+        AND name IS NOT NULL
+
+      UNION ALL
+
+      SELECT
+        name,
+        lower(name) AS name_lc,
+        way AS geom
+      FROM planet_osm_polygon
+      WHERE way && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
+        AND name IS NOT NULL
+    ),
+
+    candidates AS (
+      SELECT
+        name,
+        levenshtein(name_lc, lower(%s)) AS dist,
+        similarity(name_lc, lower(%s))  AS sim
+      FROM raw_candidates
+      -- (Optional re-check of spatial filter; you can drop this if redundant)
+      WHERE geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
+        AND name_lc % lower(%s)        -- trigram filter
+    )
+
+    SELECT
+      name
+    FROM candidates
+    WHERE dist <= %s
+    ORDER BY dist, sim DESC
+    LIMIT %s;
+    """
+    
+    min_lon, min_lat, max_lon, max_lat = viewbox_coords
+    params = [
+        # first envelope (line)
+        min_lon, min_lat, max_lon, max_lat,
+        # second envelope (polygon)
+        min_lon, min_lat, max_lon, max_lat,
+        # for levenshtein and similarity comparisons
+        street, street,
+        # third envelope for the WHERE in candidates (optional)
+        min_lon, min_lat, max_lon, max_lat,
+        # the trigram filter
+        street,
+        # the numeric thresholds
+        max_dist, top_n
+    ]
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        return [row[0] for row in cur.fetchall()]
+
 def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
-    if not viewbox_coords:
+    if not viewbox_coords: # should be redundant but kept for robustness
         return None, None, "Skipped: No viewbox for PostGIS"
     if street1 == "" or street2 == "":
         return None, None, "Skipped: Empty street"
@@ -212,29 +277,17 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
                     f"PostGIS: Avg centroid of polygons {street1} & {street2}")
 
     return None, None, "No PostGIS match"
-
-def _query_geocoders(address_variant, viewbox_coords_list):
+    
+def _query_geocoders(address_variant, viewbox_coords):
     address_variant = address_variant.lower()
     if ('&' not in address_variant) and (' and ' not in address_variant) and ('/' not in address_variant):
-        return try_nominatim(address_variant, viewbox_coords_list)
+        return try_nominatim(address_variant, viewbox_coords)
     else:
         conn = None
         try:
             conn = connection_pool.getconn()
-            
-            if '&' in address_variant:
-                parts = address_variant.split('&')
-            elif ' and ' in address_variant:
-                parts = address_variant.split(' and ')
-            else:
-                parts = address_variant.split('/')
-                
-            if len(parts) < 2:
-                return None, None, f"Error: Malformed intersection '{address_variant}'"
-                
-            street1 = parts[0].split(',')[0].strip()
-            street2 = parts[1].split(',')[0].strip()
-            return try_postgis_intersection(street1, street2, conn, viewbox_coords_list)
+            street1, street2 = split_intersection(address_variant)
+            return try_postgis_intersection(street1, street2, conn, viewbox_coords)
         except Exception as e:
             return None, None, f"Error in PostGIS: {e}"
         finally:
@@ -244,7 +297,7 @@ def _query_geocoders(address_variant, viewbox_coords_list):
 # --- Main geocoding function, goes into futures ---
 def process_address(original_address, VIEWBOX_DICT):
     city_name = extract_city(original_address)
-    viewbox_coords_list = VIEWBOX_DICT.get(city_name)
+    viewbox_coords = VIEWBOX_DICT.get(city_name)
     
     abbr_expanded = expand_abbreviations(original_address)
     dir_expanded  = expand_directions(original_address)
@@ -256,12 +309,11 @@ def process_address(original_address, VIEWBOX_DICT):
         if variant:
             queries.append(variant)
     
+    # make a copy of base of last query for possible fuzzy suffix use
+    fuzzy_suffix_base = queries[-1].rsplit(',', 2)[0]
+    
     # good place to add fuzzy name fall back, before removing stuff
     
-    
-    # at this point viewbox_coords_list is already acquired
-    # make a copy of last query for possible fuzzy suffix use
-    fuzzy_suffix_base = queries[-1].rsplit(',', 2)[0]
     
     # --- "lowercase" variants coming in, variants without city and suffix ---
     # add no city variant building on the current last in queries
@@ -273,20 +325,20 @@ def process_address(original_address, VIEWBOX_DICT):
         queries.append(removed)
     
     for query in queries:
-        lat, lon, result_msg = _query_geocoders(query, viewbox_coords_list)
+        lat, lon, result_msg = _query_geocoders(query, viewbox_coords)
         if lat is not None and lon is not None:
             return [original_address, query, lat, lon, result_msg]
 
     # --- All variants failed, Fuzzy suffix fallback from last query (e.g., C → Circle or Court) ---
     # only changing the first suffix letter, so won't work for intersection type with two fuzzy suffixes
-    match = re.search(r'\b(' + "|".join(FUZZY_SUFFIXES) + r')\b(?=\s*&|\s*,|$)', fuzzy_suffix_base)
+    match = re.search(r'\b(' + "|".join(FUZZY_SUFFIXES) + r')\b(?=\s*&|\s*,|\s*/|$)', fuzzy_suffix_base)
     if match:
         suffix_letter = match.group(1)
         for raw, pattern, replacement, note in NAME_CLEANUP_MAP:
             if raw == suffix_letter:
                 query = re.sub(pattern, replacement, original_address, flags=re.IGNORECASE)
                 if query != original_address:
-                    lat, lon, result_msg = _query_geocoders(query, viewbox_coords_list)
+                    lat, lon, result_msg = _query_geocoders(query, viewbox_coords)
                     if lat is not None and lon is not None:
                         return [original_address, query, lat, lon, result_msg]
 

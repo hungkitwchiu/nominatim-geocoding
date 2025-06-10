@@ -53,18 +53,18 @@ NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
 VIEWBOX_DICT = load_viewboxes("city_viewboxes.csv")
 
 def expand_abbreviations(address):
-    parts  = [p.strip() for p in address.split(',')]
-    base   = ','.join(parts[:-2]) if len(parts) >= 3 else address
-    suffix = ', ' + parts[-2] + ', ' + parts[-1] if len(parts) >= 3 else ''
+    parts = [p.strip() for p in address.split(',')]
+    base  = ','.join(parts[:-2]) if len(parts) >= 3 else address
+    other = ', ' + parts[-2] + ', ' + parts[-1] if len(parts) >= 3 else ''
 
     for raw, pattern, replacement, note in NAME_CLEANUP_MAP:
         if raw in FUZZY_SUFFIXES:
             continue
         base = re.sub(pattern, replacement, base, flags=re.IGNORECASE)
 
-    base = re.sub(r'\bSt(?=(\s|&|,|$))', 'Street', base, flags=re.IGNORECASE)
+    base = re.sub(r'\bSt(?=(\s|&|,|/|$))', 'Street', base, flags=re.IGNORECASE)
     base = re.sub(r'^\s*&\s*|\s*&\s*$', '', base)
-    expanded = re.sub(r'\s+', ' ', base).strip() + suffix
+    expanded = re.sub(r'\s+', ' ', base).strip() + other
 
     # only return a string if it actually changed
     if expanded.lower() == address.lower():
@@ -83,7 +83,9 @@ def remove_suffix(address):
         # only remove suffixes type of expansion, so names/typos, etc untouched
         if 'suffix' not in note.lower():
             continue
-        base = re.sub(fr'\b{replacement}(?=(\s&|&|,|$))', "", base, flags=re.IGNORECASE)
+        elif 'fuzzy suffix' == note.lower():
+            base = re.sub(fr'\b{raw}(?=(\s&|&|,|/|$))', "", base, flags=re.IGNORECASE)
+        base = re.sub(fr'\b{replacement}(?=(\s&|&|,|/|$))', "", base, flags=re.IGNORECASE)
     
     # removed = re.sub(r'\bStreet(?=(\s|&|,|$))', '', base, flags=re.IGNORECASE)    
     removed = re.sub(r'\s+', ' ', base).strip() + suffix
