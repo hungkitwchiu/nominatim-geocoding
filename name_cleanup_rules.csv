@@ -1,4 +1,5 @@
 match,replace,notes
+10th,tenth,Berkeley
 3 st,3rd street,Saint Paul
 4 st,4th street,Saint Paul
 5 st,5th street,Saint Paul
@@ -10,7 +11,6 @@ match,replace,notes
 10 st,10th street,Saint Paul
 11 st,11th street,Saint Paul
 12 st,12th street,Saint Paul
-10th,tenth,Berkeley
 (SB|NB) [0-9]*( TO| FRO.)?( N| S| [0-9]*)?,,San Jose
 A,Avenue,Common suffix
 After,,Virginia Beach
@@ -171,6 +171,7 @@ STRYKER,Saint Ryker,Saint Paul name
 TER,Terrace,Common suffix
 TERR,Terrace,Common suffix
 telegrapgh,TELEGRAPH,Berkeley typo
+TRCE,Trace,Common suffix
 th Half st, 1/2 street,Virginia Beach name/no-boundary
 st half st, 1/2 street,Virginia Beach name/no-boundary
 nd half st, 1/2 street,Virginia Beach name/no-boundary
@@ -192,7 +193,7 @@ XING,CROSSING,USPS standard suffix
 XRD,CROSSROAD,USPS standard suffix
 XRDS,CROSSROADS,USPS standard suffix
 Nickoles,Nicholas,Norfolk name/typo
- BLK,,Norfolk
+BLK,,Norfolk
 B00,Bay,Berkeley name/typo
 S00 PABLO,San Pablo,Berkeley name/typo
 MCG00,MCGEE,Berkeley name/typo
@@ -220,4 +221,21 @@ WA00,Ward,Berkeley name/typo
 CIV00,Civic,Berkeley name/typo
 ESS00,Essex,Berkeley name/typo
 SPINANNAKER,SPINNAKER,Berkeley name/typo
-
+LOWERAFTON,Lower Afton,Saint Paul name/typo
+RIVERPARK,River Park,Saint Paul name/typo
+MTCURVE,Mt Curve,Saint Paul name/typo
+MTAIRY,Mt Airy,Saint Paul name/typo
+CESARCHAVEZ,Cesar Chavez,Saint Paul name/typo
+MTIDA,Mt Ida,Saint Paul name/typo
+DRJUSTUSOHAGE,DOCTOR JUSTUS OHAGE,Saint Paul name/typo
+PTDOUGLAS,Point Douglas,Saint Paul name/typo
+FISHHATCHERY,FISH HATCHERY,Saint Paul name/typo
+DR W J HODGE,Doctor W J Hodge,Louisville name/typo
+Elm Street North,Elm Street,Cambridge name/typo
+NEW AUTUMN ST,N Autumn Street,San Jose name/typo
+LOS GATOS-ALMADE,Los Gatos Almaden,San Jose name/typo
+ALMENDRO,ALMENDROS,San Jose name/typo
+EVANSTON,EVANSTONE,San Jose name/typo
+AT,,San Jose
+CHEMIN DE RIVIER,CHEMIN DE RIVIERE,San Jose name/typo
+EL PASEO DE SARATO,EL PASEO DE SARATOGA,San Jose name/typo

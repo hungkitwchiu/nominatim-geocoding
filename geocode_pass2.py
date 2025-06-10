@@ -9,9 +9,9 @@ from geofunctions import expand_abbreviations, expand_directions, remove_suffix
 from geofunctions import VIEWBOX_DICT, NAME_CLEANUP_MAP, FUZZY_SUFFIXES
 
 # Configuration
-INPUT_FILE = "STP_address.csv"
-OUTPUT_FILE_MATCHES = "STP_geocoded_matches.csv"
-OUTPUT_FILE_UNMATCHED = "STP_geocoded_unmatched.csv"
+INPUT_FILE = "SJ_address.csv"
+OUTPUT_FILE_MATCHES = "SJ_geocoded_matches.csv"
+OUTPUT_FILE_UNMATCHED = "SJ_geocoded_unmatched.csv"
 MAX_WORKERS = 12
 API_URL = "http://localhost/nominatim/search"
 
@@ -282,8 +282,8 @@ def process_address(original_address, VIEWBOX_DICT):
         suffix_letter = match.group(1)
         for raw, pattern, replacement in NAME_CLEANUP_MAP:
             if raw == suffix_letter:
-                fuzzy_variant = re.sub(pattern, replacement, query, flags=re.IGNORECASE)
-                if fuzzy_variant != query:
+                fuzzy_variant = re.sub(pattern, replacement, original_address, flags=re.IGNORECASE)
+                if fuzzy_variant != original_address:
                     lat, lon, result_msg = _query_geocoders(fuzzy_variant, viewbox_coords_list)
                     if lat is not None and lon is not None:
                         return [original_address, fuzzy_variant, lat, lon, result_msg]
