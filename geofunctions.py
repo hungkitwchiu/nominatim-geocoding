@@ -94,7 +94,7 @@ def remove_suffix(address):
     return removed
 
 def expand_directions(address):
-    expanded = address # make a copy first
+    expanded = address # operate on the copy
     for pattern, replacement in DIRECTION_MAP.items():
         expanded = re.sub(pattern, replacement, expanded, flags=re.IGNORECASE)
     expanded = re.sub(r'\s+', ' ', expanded).strip()
