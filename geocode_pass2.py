@@ -38,7 +38,7 @@ def remove_city(address):
     new_list = parts[:-2] + parts[-1:]
     # lower to indicate this is a latter variant
     return ",".join(new_list).strip().lower()
-    
+
 def exists_in(db_conn, table, name, envelope_sql, bbox_params):
     sql = f"""
         SELECT EXISTS(
@@ -52,7 +52,6 @@ def exists_in(db_conn, table, name, envelope_sql, bbox_params):
     with db_conn.cursor() as cur:
         cur.execute(sql, params)
         return cur.fetchone()[0]
-
 
 def get_centroid(db_conn, table, name, envelope_sql, bbox_params):
     if table == 'planet_osm_line':
@@ -256,10 +255,13 @@ def process_address(original_address, VIEWBOX_DICT):
     for variant in (abbr_expanded, dir_expanded, full_expanded):
         if variant:
             queries.append(variant)
-
+    
+    # good place to add fuzzy name fall back, before removing stuff
+    
+    
     # at this point viewbox_coords_list is already acquired
     # make a copy of last query for possible fuzzy suffix use
-    fuzzy_base = queries[-1].rsplit(',', 2)[0]
+    fuzzy_suffix_base = queries[-1].rsplit(',', 2)[0]
     
     # --- "lowercase" variants coming in, variants without city and suffix ---
     # add no city variant building on the current last in queries
@@ -277,16 +279,16 @@ def process_address(original_address, VIEWBOX_DICT):
 
     # --- All variants failed, Fuzzy suffix fallback from last query (e.g., C → Circle or Court) ---
     # only changing the first suffix letter, so won't work for intersection type with two fuzzy suffixes
-    match = re.search(r'\b(' + "|".join(FUZZY_SUFFIXES) + r')\b(?=\s*&|\s*,|$)', fuzzy_base)
+    match = re.search(r'\b(' + "|".join(FUZZY_SUFFIXES) + r')\b(?=\s*&|\s*,|$)', fuzzy_suffix_base)
     if match:
         suffix_letter = match.group(1)
-        for raw, pattern, replacement in NAME_CLEANUP_MAP:
+        for raw, pattern, replacement, note in NAME_CLEANUP_MAP:
             if raw == suffix_letter:
-                fuzzy_variant = re.sub(pattern, replacement, original_address, flags=re.IGNORECASE)
-                if fuzzy_variant != original_address:
-                    lat, lon, result_msg = _query_geocoders(fuzzy_variant, viewbox_coords_list)
+                query = re.sub(pattern, replacement, original_address, flags=re.IGNORECASE)
+                if query != original_address:
+                    lat, lon, result_msg = _query_geocoders(query, viewbox_coords_list)
                     if lat is not None and lon is not None:
-                        return [original_address, fuzzy_variant, lat, lon, result_msg]
+                        return [original_address, query, lat, lon, result_msg]
 
     # --- All variants failed ---
     return [original_address, query, None, None, result_msg]
