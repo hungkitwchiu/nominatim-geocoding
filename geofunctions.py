@@ -35,9 +35,9 @@ def load_cleanup_rules(csv_path):
             cleanup_list.append((raw_match, pattern, replacement, note))
     return cleanup_list
     
-def load_viewboxes(file_path):
+def load_viewboxes(csv_path):
     VIEWBOX_DICT = {}
-    with open(file_path, newline='', encoding='utf-8') as f:
+    with open(csv_path, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
             viewbox_str = row['viewbox']
@@ -94,7 +94,7 @@ def remove_suffix(address):
     return removed
 
 def expand_directions(address):
-    expanded = address
+    expanded = address # make a copy first
     for pattern, replacement in DIRECTION_MAP.items():
         expanded = re.sub(pattern, replacement, expanded, flags=re.IGNORECASE)
     expanded = re.sub(r'\s+', ' ', expanded).strip()
