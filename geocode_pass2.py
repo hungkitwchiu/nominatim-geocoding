@@ -9,9 +9,9 @@ from geofunctions import expand_abbreviations, expand_directions, remove_suffix
 from geofunctions import VIEWBOX_DICT, NAME_CLEANUP_MAP, FUZZY_SUFFIXES
 
 # Configuration
-INPUT_FILE = "BER_address.csv"
-OUTPUT_FILE_MATCHES = "BER_geocoded_matches.csv"
-OUTPUT_FILE_UNMATCHED = "BER_geocoded_unmatched.csv"
+INPUT_FILE = "SJ_address.csv"
+OUTPUT_FILE_MATCHES = "SJ_geocoded_matches.csv"
+OUTPUT_FILE_UNMATCHED = "SJ_geocoded_unmatched.csv"
 MAX_WORKERS = 12
 API_URL = "http://localhost/nominatim/search"
 
