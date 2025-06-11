@@ -53,6 +53,7 @@ NAME_CLEANUP_MAP = load_cleanup_rules("name_cleanup_rules.csv")
 VIEWBOX_DICT = load_viewboxes("city_viewboxes.csv")
 
 def expand_abbreviations(address):
+    # refactor this into a function
     parts = [p.strip() for p in address.split(',')]
     base  = ','.join(parts[:-2]) if len(parts) >= 3 else address
     other = ', ' + parts[-2] + ', ' + parts[-1] if len(parts) >= 3 else ''
@@ -71,10 +72,10 @@ def expand_abbreviations(address):
         return None
     return expanded
 
-def remove_suffix(address):
+def remove_suffix(address_no_city):
     # address should not contain city coming into here, should be XX Street, State
-    parts  = [p.strip() for p in address.split(',')]
-    base   = ','.join(parts[:-1]) if len(parts) >= 2 else address
+    parts  = [p.strip() for p in address_no_city.split(',')]
+    base   = ','.join(parts[:-1]) if len(parts) >= 2 else address_no_city
     suffix = ', ' + parts[-1] if len(parts) >= 2 else ''
     
     for raw, pattern, replacement, note in NAME_CLEANUP_MAP:
@@ -89,7 +90,7 @@ def remove_suffix(address):
     
     # removed = re.sub(r'\bStreet(?=(\s|&|,|$))', '', base, flags=re.IGNORECASE)    
     removed = re.sub(r'\s+', ' ', base).strip() + suffix
-    if removed.lower() == address.lower():
+    if removed.lower() == address_no_city.lower():
         return None
     return removed
 

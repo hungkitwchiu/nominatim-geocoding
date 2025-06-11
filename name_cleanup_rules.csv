@@ -86,7 +86,6 @@ DONS,Downs,Common suffix
 DR,Drive,Common suffix
 DRS,DRIVES,USPS standard suffix
 DV,DIVIDE,USPS standard suffix
-ENERGYPARK,Energy Park,Saint Paul
 EST,ESTATE,USPS standard suffix
 ESTS,ESTATES,USPS standard suffix
 EX,Expressway,Common suffix
@@ -123,21 +122,17 @@ MA,Mall,Common suffix
 Martin Luther King JR,Martin Luther King Junior,Berkeley name
 Mbta,,Cambridge
 MHP,Mobile Home Park,San Jose
-MISSISSIPPIRIVER,MISSISSIPPI RIVER,Saint Paul name
 M L King JR,Martin Luther King Junior,Berkeley name
 MLK,Martin Luther King,Berkeley name
 Mt,Mount ,Convert to 'Mount' before proper name (must end with space)
-MTHOPE,Mount Hope,Saint Paul
 MTN,Mountain,Common Suffix
 New La Grange,New Lagrange,Louisville name/typo
 Obrien,O'brien,Name
 OCEANFRONT,Ocean Front,Virginia Beach name
-oldhudson,Old Hudson,Saint Paul typo
 OXFORD ST N,North Oxford Street,Saint Paul
 P,Place,Fuzzy suffix
 P,Park,Fuzzy suffix
 PA,Parkway,Common suffix
-PIERCEBUTLER,Pierce Butler,Saint Paul
 PK,Park,Common suffix
 PKWY,Parkway,Common suffix
 PKY,Parkway,Alternative abbreviation
@@ -179,14 +174,10 @@ rd half st, 1/2 street,Virginia Beach name/no-boundary
 TR,Terrace,Common suffix
 TRL,Trail,Common suffix
 TPKE,Turnpike,Common suffix
-UPPERAFTON,UPPER AFTON,Saint Paul
-VANDYKE,Van Dyke,Saint Paul name/typo
-VANBUREN,Van Buren,Saint Paul name/typo
 VAL,Valley,Common suffix
 VBB,Virginia Beach Boulevard,Virginia Beach
 VLG,Village,Common suffix
 VLY,Valley,Common suffix
-whitebear,White Bear,Saint Paul typo
 WW,Walkway,Common suffix
 WY,Way,Common suffix
 XING,CROSSING,USPS standard suffix
@@ -221,15 +212,8 @@ WA00,Ward,Berkeley name/typo
 CIV00,Civic,Berkeley name/typo
 ESS00,Essex,Berkeley name/typo
 SPINANNAKER,SPINNAKER,Berkeley name/typo
-LOWERAFTON,Lower Afton,Saint Paul name/typo
-RIVERPARK,River Park,Saint Paul name/typo
-MTCURVE,Mt Curve,Saint Paul name/typo
-MTAIRY,Mt Airy,Saint Paul name/typo
-CESARCHAVEZ,Cesar Chavez,Saint Paul name/typo
-MTIDA,Mt Ida,Saint Paul name/typo
 DRJUSTUSOHAGE,DOCTOR JUSTUS OHAGE,Saint Paul name/typo
 PTDOUGLAS,Point Douglas,Saint Paul name/typo
-FISHHATCHERY,FISH HATCHERY,Saint Paul name/typo
 DR W J HODGE,Doctor W J Hodge,Louisville name/typo
 Elm Street North,Elm Street,Cambridge name/typo
 NEW AUTUMN ST,N Autumn Street,San Jose name/typo
@@ -237,5 +221,7 @@ LOS GATOS-ALMADE,Los Gatos Almaden,San Jose name/typo
 ALMENDRO,ALMENDROS,San Jose name/typo
 EVANSTON,EVANSTONE,San Jose name/typo
 AT,,San Jose
+RP,,San Jose
 CHEMIN DE RIVIER,CHEMIN DE RIVIERE,San Jose name/typo
 EL PASEO DE SARATO,EL PASEO DE SARATOGA,San Jose name/typo
+AIRES LN,ARIES LN,San Jose name/typo
