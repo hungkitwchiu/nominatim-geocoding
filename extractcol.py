@@ -1,7 +1,7 @@
 import pandas as pd
 
-input_file = "STP_geocoded_unmatched.csv"
-output_file = "STP_address.csv"
+input_file = "SJ_geocoded_unmatched.csv"
+output_file = "SJ_address.csv"
 
 df = pd.read_csv(input_file)
 

@@ -110,9 +110,7 @@ def find_similar_street(street, db_conn, viewbox_coords, max_dist=1, top_n=1):
       FROM planet_osm_line
       WHERE way && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
         AND name IS NOT NULL
-
       UNION ALL
-
       SELECT
         name,
         lower(name) AS name_lc,
@@ -121,7 +119,6 @@ def find_similar_street(street, db_conn, viewbox_coords, max_dist=1, top_n=1):
       WHERE way && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
         AND name IS NOT NULL
     ),
-
     candidates AS (
       SELECT
         name,
@@ -132,7 +129,6 @@ def find_similar_street(street, db_conn, viewbox_coords, max_dist=1, top_n=1):
       WHERE geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
         AND name_lc % lower(%s)        -- trigram filter
     )
-
     SELECT
       name
     FROM candidates
@@ -141,16 +137,16 @@ def find_similar_street(street, db_conn, viewbox_coords, max_dist=1, top_n=1):
     LIMIT %s;
     """
     
-    min_lon, min_lat, max_lon, max_lat = viewbox_coords
+    min_lon, max_lat, max_lon, min_lat = viewbox_coords
     params = [
         # first envelope (line)
-        min_lon, min_lat, max_lon, max_lat,
+        min_lon, max_lat, max_lon, min_lat,
         # second envelope (polygon)
-        min_lon, min_lat, max_lon, max_lat,
+        min_lon, max_lat, max_lon, min_lat,
         # for levenshtein and similarity comparisons
         street, street,
         # third envelope for the WHERE in candidates (optional)
-        min_lon, min_lat, max_lon, max_lat,
+        min_lon, max_lat, max_lon, min_lat,
         # the trigram filter
         street,
         # the numeric thresholds
@@ -166,9 +162,9 @@ def try_postgis_intersection(street1, street2, db_conn, viewbox_coords):
     if street1 == "" or street2 == "":
         return None, None, "Skipped: Empty street"
 
-    min_lon, min_lat, max_lon, max_lat = viewbox_coords
+    min_lon, max_lat, max_lon, min_lat = viewbox_coords
     envelope_sql = "ST_MakeEnvelope(%s, %s, %s, %s, 4326)"
-    bbox_params = [min_lon, min_lat, max_lon, max_lat]
+    bbox_params = [min_lon, max_lat, max_lon, min_lat]
 
     # Detect feature existence
     is_line1 = exists_in(db_conn, "planet_osm_line",    street1, envelope_sql, bbox_params)
