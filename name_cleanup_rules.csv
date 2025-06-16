@@ -201,6 +201,7 @@ CED00,Cedar,Berkeley name/typo
 TEN00,Tenth,Berkeley name/typo
 NIN00,Ninth,Berkeley name/typo
 M00 JR,Martin Luther King Junior,Berkeley name/typo
+M00 KING JR,Martin Luther King Junior,Berkeley name/typo
 HAS00,Haste,Berkeley name/typo
 PA00,Page,Berkeley name/typo
 ACT00,Acton,Berkeley name/typo
@@ -211,6 +212,7 @@ HEN00,Henry,Berkeley name/typo
 WA00,Ward,Berkeley name/typo
 CIV00,Civic,Berkeley name/typo
 ESS00,Essex,Berkeley name/typo
+KAI00,Kains,Berkeley name/typo
 SPINANNAKER,SPINNAKER,Berkeley name/typo
 DRJUSTUSOHAGE,DOCTOR JUSTUS OHAGE,Saint Paul name/typo
 PTDOUGLAS,Point Douglas,Saint Paul name/typo
@@ -224,3 +226,14 @@ RP,,San Jose
 CHEMIN DE RIVIER,CHEMIN DE RIVIERE,San Jose name/typo
 EL PASEO DE SARATO,EL PASEO DE SARATOGA,San Jose name/typo
 AIRES LN,ARIES LN,San Jose name/typo
+MISSISSIPPIRIVER,MISSISSIPPI RIVER,Saint Paul name/typo
+PIERCEBUTLER RD,Pierce Butler Route,Saint Paul name/typo
+MTAIRY,Mount AIRY,Saint Paul name/typo
+MTCURVE,Mount CURVE,Saint Paul name/typo
+MTIDA,Mount IDA,Saint Paul name/typo
+MTHOPE,Mount HOPE,Saint Paul name/typo
+CURTICE ST E,East Curtice Street,Saint Paul name/typo
+LOWERAFTON,Lower Afton,Saint Paul name/typo
+Cambridge Cemetery,Cambridge Cemetry Rd,Cambridge name
+(0 )?Vail Ct,139 Bishop Allen Drive,Cambridge name/place
+
