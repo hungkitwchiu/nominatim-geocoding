@@ -1,0 +1,15 @@
+original_address,used_variant,lat,lon,result
+"0 Jefferson Park, Cambridge, MA","0 jefferson, ma",,,No Nominatim match
+NA,,,,Critical Error: 'NoneType' object has no attribute 'split'
+"0 Vail Ct, Cambridge, MA","0 vail, ma",,,No Nominatim match
+"100 Jackson Cir, Cambridge, MA","100 jackson, ma",,,No Nominatim match
+"Bishop Allen Dr & Vail Ct, Cambridge, MA","bishop allen & vail, ma",,,PostGIS: 'bishop allen' or 'vail' not in viewbox
+"100 Jefferson Park, Cambridge, MA","100 jefferson, ma",,,No Nominatim match
+"Vail Ct & Bishop Allen Dr, Cambridge, MA","vail & bishop allen, ma",,,PostGIS: 'vail' or 'bishop allen' not in viewbox
+"300 Fresh Pond Golf Course, Cambridge, MA","300 fresh pond golf, ma",,,No Nominatim match
+"Unknown & Unknown, Cambridge, MA","unknown & unknown, ma",,,PostGIS: 'unknown' or 'unknown' not in viewbox
+"0 Jackson Cir, Cambridge, MA","0 jackson, ma",,,No Nominatim match
+"1600 Cambridge Cemetery, Cambridge, MA","1600 cambridge cemetery, ma",,,No Nominatim match
+"0 Unknown, Cambridge, MA","0 unknown, ma",,,No Nominatim match
+"400 Fresh Pond Golf Course, Cambridge, MA","400 fresh pond golf, ma",,,No Nominatim match
+"0 Steel Pl, Cambridge, MA","0 steel, ma",,,No Nominatim match
