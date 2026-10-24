@@ -36,6 +36,6 @@ Outputs go to `outputs/<dataset>/`: `results.csv` (one row per input address),
 | `configs/<city>.yaml`, `configs/rules/<city>.csv` | one dataset: area, parsing options, local name fixes |
 | `tests/` | unit tests and regression cases (`python -m unittest discover -s tests -t .`) |
 | `docs/` | documentation (Quarto) |
-| `geocode.py`, `geocode_pass2.py`, `geofunctions.py` | the earlier two-pass scripts, kept for comparison |
+| `legacy/` | the earlier two-pass scripts and their documentation, kept for comparison (tag `two-pass-final`) |
 
 Address files and outputs are not version-controlled (see `.gitignore`).

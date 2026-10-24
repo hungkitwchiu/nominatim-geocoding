@@ -18,7 +18,7 @@ This page documents `nomgeo`, the geocoder that turns street addresses from US p
 records into latitude/longitude, using a self-hosted [Nominatim](https://nominatim.org/)
 database built from [OpenStreetMap](https://www.openstreetmap.org/) (OSM) and US Census
 TIGER house-number ranges. It replaces the earlier two-pass scripts (`geocode.py` and
-`geocode_pass2.py`), which are kept in the repository for comparison.
+`geocode_pass2.py`), which are kept in the repository's `legacy/` folder for comparison.
 
 The design follows four rules.
 
@@ -122,8 +122,8 @@ role is sufficient.
 # Quick start {#sec-quickstart}
 
 A dataset is one CSV file with an `address` column in the form `street, city, state`
-(the same input as before; see the earlier documentation for preparing it), plus a small
-YAML file:
+(the same input as before; see the [earlier documentation](https://hungkitwchiu.github.io/doc.geocode.html)
+for preparing it), plus a small YAML file:
 
 ``` yaml
 # configs/berkeley.yaml
@@ -456,7 +456,7 @@ Dataset-specific parsing options:
 | `unreliable_types: [ST]` | Lincoln | the department writes ST for streets of any type (`HUNTINGTON ST` = Huntington Avenue) |
 
 **Rule files** (`configs/rules/<city>.csv`) keep the format of the old
-`name_cleanup_rules.csv` (`match,replace,notes`; whole words, case-insensitive, regular
+`legacy/name_cleanup_rules.csv` (`match,replace,notes`; whole words, case-insensitive, regular
 expressions allowed, `no-boundary` in the notes for partial words), but each file applies
 only to its own dataset. The city-specific rows of the old file were carried over; the
 generic abbreviation rows are now handled in code. One old rule was dropped because it was

@@ -183,7 +183,7 @@ To get a sense of how addresses should be formatted, you can always try searchin
 :::
 
 
-### `geocode.py` [<i class="bi bi-github"></i>](https://github.com/hungkitwchiu/nominatim-geocoding/blob/main/geocode.py)
+### `geocode.py` [<i class="bi bi-github"></i>](https://github.com/hungkitwchiu/nominatim-geocoding/blob/two-pass-final/geocode.py)
 
 This script performs an initial geocoding pass, it
 
@@ -199,7 +199,7 @@ This script performs an initial geocoding pass, it
 
 -   Reports percentage of failed matches at the end.
 
-### `geocode_pass2.py` [<i class="bi bi-github"></i>](https://github.com/hungkitwchiu/nominatim-geocoding/blob/main/geocode_pass2.py) {#sec-pass2}
+### `geocode_pass2.py` [<i class="bi bi-github"></i>](https://github.com/hungkitwchiu/nominatim-geocoding/blob/two-pass-final/geocode_pass2.py) {#sec-pass2}
 
 Using the `osm_raw` database, the second pass script `geocode_pass2.py` does the following:
 
@@ -245,7 +245,7 @@ original_address,used_variant,lat,lon,result
 "QUIMBY RD & S WHITE RD, San Jose, CA","QUIMBY RD & S WHITE RD, San Jose, CA",37.325,-121.797,"Quimby Road & South White Road, Quimby Road, San Jose, Santa Clara County, California, 95148, United States"
 ```
 
-### `geofunctions.py` [<i class="bi bi-github"></i>](https://github.com/hungkitwchiu/nominatim-geocoding/blob/main/geofunctions.py) {#sec-geofunc}
+### `geofunctions.py` [<i class="bi bi-github"></i>](https://github.com/hungkitwchiu/nominatim-geocoding/blob/two-pass-final/geofunctions.py) {#sec-geofunc}
 
 Helper functions that facilitate both `geocode.py` and `geocode_pass2.py` by parsing reference files and creating *address variants* to be used in the fallback sequence (@sec-fallback) when the raw address does not return a match.
 
