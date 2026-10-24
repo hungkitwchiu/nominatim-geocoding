@@ -26,7 +26,8 @@ parsing:
 
 # What counts as a match.  These defaults target census block / block-group analysis.
 precision:
-  near_intersection_max_gap_m: 40   # two streets this close count as meeting
+  near_intersection_max_gap_m: 100  # two streets this close count as meeting (precision gap/2 + 10 m); raised from 40 m on 2026-10-23
+  near_side_by_side_max_m: 100      # ...unless they run side by side longer than this (parallel streets)
   intersection_merge_m: 60          # crossing points closer than this are one junction
   ambiguity_radius_m: 80            # candidate locations within this radius are one place
   street_max_radius_m: 125          # street-only records: whole street within this radius

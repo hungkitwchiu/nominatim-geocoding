@@ -170,7 +170,7 @@ flowchart TD
   B -->|"address, street, intersection, between"| C["resolve street names against<br/>the streets of the area"]
   C -->|"no street fits"| P["named-place search<br/>(place-like text only)"]
   C --> D1["house or block number<br/>OSM address points, TIGER and OSM ranges"]
-  C --> D2["intersection<br/>crossing, or a near miss up to 40 m"]
+  C --> D2["intersection<br/>crossing, or a near miss up to 100 m"]
   C --> D3["street only<br/>short streets only"]
   D1 --> E{"one place?<br/>precise enough?"}
   D2 --> E
@@ -292,12 +292,25 @@ Candidate streets that still point to **different** places make the record ambig
 have a 700 block.
 
 **Intersections.** The two streets' real geometries are intersected. Crossing points within
-60 m of each other (divided roads, slip lanes) are one junction. If the streets do not touch
-but come within **40 m** (a T-junction drawn with a small gap, a cul-de-sac), the midpoint of
-the gap is used (`near_intersection`, precision gap/2 + 10 m). If the same two streets cross
+60 m of each other (divided roads, slip lanes) are one junction. If the same two streets cross
 in two places more than 80 m apart (`MARTIN LUTHER KING JR WAY & ADELINE ST` in Berkeley
 cross near Ashby BART and again at 63rd St), the record is ambiguous. Junctions on a
 motorway are interchanges and not geocoded.
+
+If the streets do not touch but come within **100 m**, the record is a near miss
+(`near_intersection`). That covers a junction drawn with a small gap (Berkeley's traffic
+diverters) and the San Jose habit of recording a cul-de-sac with its nearest through street.
+How the point is placed depends on how the two streets approach each other:
+
+* one street ends at, or points to, the gap: the middle of the gap, precision gap/2 + 10 m
+  (`PORTSWOOD CL & EARLSWOOD CT`, gap 81 m, 51 m);
+* a short street runs beside the other one (a cul-de-sac parallel to the avenue): the middle
+  of that stretch, precision √((gap/2)² + (stretch/2)²) + 10 m, flag `side_by_side`
+  (`EDEN AV & ONYX CT`, an 89 m court 92 m from the avenue, 74 m);
+* the two streets run side by side for more than 100 m (`near_side_by_side_max_m`): **not a
+  near miss**. Two parallel streets a block apart have no particular "closest point", which is
+  what produced the earlier pipeline's false intersections: `WARD ST & DERBY ST` in Berkeley,
+  84 m apart, stays uncoded.
 
 When the exactly-named streets do not meet, one more attempt is made with names one letter
 away (`second_chance`), accepted only if those streets actually cross. The large search box
@@ -348,7 +361,7 @@ an intersection the place must lie within 150 m of the other street (a "VTA Park
 | `block` | the centre of a hundred block | 30–120 m |
 | `between` | the middle of a street between two cross streets (Lincoln) | 50–180 m |
 | `intersection` | where the two streets cross | 10 m |
-| `near_intersection` | the middle of a gap of up to 40 m between the two streets | 10–30 m |
+| `near_intersection` | the middle of a gap of up to 100 m between the two streets | 15–60 m (up to ~80 m beside a cul-de-sac) |
 | `street` | the middle of a short street (street-only records) | 25–125 m |
 | `poi` | a small named place | 25–150 m |
 
@@ -359,7 +372,8 @@ an alternative or old OSM name), `unit_removed`, `outside_city`, `preferred_in_c
 `number_not_found` (a short street was used because the number is not on it),
 `block_of_exact_number`, `between_known_numbers`, `offset_of_intersection` (San Jose
 `VINE ST S & O GOODYEAR ST`, "on Vine St south of Goodyear": precision at least 100 m),
-`second_chance`, `trailing_text`, `poi_side`, `outlier_points_dropped`.
+`second_chance`, `side_by_side` (a near miss beside a short street), `trailing_text`,
+`poi_side`, `outlier_points_dropped`.
 
 ::: {.callout-tip}
 ## Using precision in an analysis
@@ -376,7 +390,8 @@ file can override any key.
 | Key | Default | Meaning |
 |---|---:|---|
 | `numbering` | `auto` | `hundred_block`, `exact`, or `auto` (≥ 80% of numbers end in 00 or 50) |
-| `precision.near_intersection_max_gap_m` | 40 | two streets this close count as meeting |
+| `precision.near_intersection_max_gap_m` | 100 | two streets this close count as meeting (raised from 40 m, see @sec-decisions) |
+| `precision.near_side_by_side_max_m` | 100 | ...unless they run side by side for longer than this |
 | `precision.intersection_merge_m` | 60 | crossing points this close are one junction |
 | `precision.ambiguity_radius_m` | 80 | candidate places within this radius are one place |
 | `precision.street_max_radius_m` | 125 | street-only records: the street must fit in this radius |
@@ -389,8 +404,9 @@ file can override any key.
 | `accept.highway_interchange`, `accept.coordinates_in_text` | false | ramps/interchanges and typed coordinates |
 | `accept.outside_core` | true | keep matches outside the city boundary (flagged) |
 
-The defaults target census **block and block-group** analysis. For tract-level work,
-loosening `near_intersection_max_gap_m` (see @sec-decisions) and `street_max_radius_m`
+The defaults target census **block and block-group** analysis, with near misses allowed up to
+100 m because each carries its own precision. For tract-level work, loosening
+`near_side_by_side_max_m` (see @sec-decisions) and `street_max_radius_m`
 recovers more records at a known cost in precision.
 
 Dataset-specific parsing options:
@@ -488,14 +504,21 @@ house-number data, streets that do not meet, and records that fit two places.
 
 **How close is "near" for two streets that do not touch?** This is the setting with the
 largest effect. San Jose records often name a cul-de-sac with its nearest through street,
-which can be 80–200 m away. The table counts the unmatched "streets do not meet" records by
-the gap between the two streets, i.e. what a larger `near_intersection_max_gap_m` would add:
+which can be 80–200 m away. With a 40 m limit, 2,989 San Jose records whose streets were 40–100 m
+apart stayed uncoded. On 2026-10-23 the limit was raised to 100 m, with precision gap/2 + 10 m.
+At the same time, parallel streets stopped counting as near misses at any gap. That removed
+104 earlier near misses under 40 m, such as `S 9TH ST & S 10TH ST`, whose closest point lies
+somewhere along a long stretch. Near misses now, by gap:
+
+{{< include _generated/near.md >}}
+
+What remains of "streets do not meet". The first column after the total counts streets
+within 100 m of each other that run side by side for more than 100 m. In a sample of 200 of
+San Jose's, half ran side by side for over 250 m (truly parallel), and a quarter for
+100–150 m. Raising `near_side_by_side_max_m` to 150 m would add that quarter at about 85 m
+precision.
 
 {{< include _generated/gap_tradeoff.md >}}
-
-At 100 m the precision of the added points would be about 60 m (half the gap plus 10 m),
-still within a typical block; at 150–200 m they are better suited to tract-level work. The
-default stays at 40 m, matching the block-level target.
 
 **Hundred-block numbers** are placed at the middle of the block. The incident could be
 anywhere on the block, on either side of the street; `precision_m` reflects the block's

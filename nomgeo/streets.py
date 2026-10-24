@@ -253,7 +253,7 @@ class AreaIndex:
         if not sn.base or sn.key() in self.seg_keys[seg]:
             return True, False
         a_sq = "".join(sn.raw[1:] if sn.predir else sn.raw)
-        for k in self.seg_keys[seg]:
+        for k in sorted(self.seg_keys[seg]):
             e = self.entries.get(k)
             if e is None:
                 continue

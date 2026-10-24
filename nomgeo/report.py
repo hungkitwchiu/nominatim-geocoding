@@ -39,6 +39,7 @@ def build(configs: list[str], out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     datasets = [load_dataset(c) for c in configs]
     res_rows, type_rows, reason_rows, legacy_rows, gap_rows, prec_rows = [], [], [], [], [], []
+    near_rows = []
     tot = Counter()
     reasons_all = Counter()
     for ds in datasets:
@@ -91,7 +92,17 @@ def build(configs: list[str], out_dir: Path) -> None:
         gaps = [int(m.group(1)) for r in rows if r["status"] != "matched"
                 for m in [re.search(r"streets do not meet \(closest (\d+) m\)", r.get("reason", ""))] if m]
         if gaps:
-            gap_rows.append([name, f"{len(gaps):,}"] + [f"{sum(1 for g in gaps if g <= t):,}" for t in (60, 80, 100, 150, 200)])
+            bands = [(0, 100), (100, 150), (150, 200), (200, 10 ** 9)]
+            gap_rows.append([name, f"{len(gaps):,}"] + [f"{sum(1 for g in gaps if lo < g <= hi or (lo == 0 and g == 0)):,}"
+                                                        for lo, hi in bands])
+        near = [r for r in matched if r["match_type"] == "near_intersection"]
+        near_gaps = [int(m.group(1)) for r in near for m in [re.search(r"gap (\d+) m", r.get("detail", ""))] if m]
+        if near:
+            near_prec = sorted(float(r["precision_m"]) for r in near)
+            near_rows.append([name, f"{len(near):,}", f"{sum(g <= 40 for g in near_gaps):,}",
+                              f"{sum(40 < g <= 70 for g in near_gaps):,}", f"{sum(70 < g for g in near_gaps):,}",
+                              f"{sum('side_by_side' in (r.get('flags') or '') for r in near):,}",
+                              f"{near_prec[len(near_prec) // 2]:.0f}"])
 
     (out_dir / "results.md").write_text(_table(
         ["City", "Unique records", "Matched", "Match rate", "Legacy match rate", "Legacy run time", "New run time"],
@@ -107,5 +118,9 @@ def build(configs: list[str], out_dir: Path) -> None:
         ["City", "Legacy matches", "Same place (<= 100 m)", "Moved > 250 m", "Now unmatched", "Newly matched"],
         legacy_rows))
     (out_dir / "gap_tradeoff.md").write_text(_table(
-        ["City", "Streets do not meet", "<= 60 m", "<= 80 m", "<= 100 m", "<= 150 m", "<= 200 m"], gap_rows))
+        ["City", "Streets do not meet", "within 100 m (side by side)", "100-150 m", "150-200 m", "over 200 m"],
+        gap_rows))
+    (out_dir / "near.md").write_text(_table(
+        ["City", "Near intersections", "gap <= 40 m", "40-70 m", "70-100 m", "beside a cul-de-sac", "median precision m"],
+        near_rows))
     print(f"wrote {len(list(out_dir.glob('*.md')))} tables to {out_dir}")

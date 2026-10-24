@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 import shapely
-from shapely.ops import nearest_points
+from shapely.ops import linemerge, nearest_points
 from shapely.strtree import STRtree
 
 from .resolve import Candidate
@@ -338,32 +338,95 @@ def _entry_tree(index: AreaIndex, entry):
     return t
 
 
+def _local_street(index: AreaIndex, entry, p, radius: float):
+    """The pieces of a street within `radius` of point p, as one geometry."""
+    tree = _entry_tree(index, entry)
+    hits = tree.query(p.buffer(radius))
+    if len(hits) == 0:
+        return None
+    return shapely.union_all([tree.geometries[i] for i in hits])
+
+
+def _near_stretch(index: AreaIndex, ea, pa, eb, gap: float):
+    """How much of street A runs within (gap + 20 m) of street B, around their closest point.
+
+    A street that ends at the gap or meets the other at an angle has a short stretch there
+    (tens of metres); a cul-de-sac beside a street has its own length; two parallel streets
+    have a long one.  Returns (length, middle point of that stretch) or (inf, None).
+    """
+    la = _local_street(index, ea, pa, 200.0)
+    lb = _local_street(index, eb, pa, 300.0)
+    if la is None or lb is None:
+        return math.inf, None
+    part = la.intersection(lb.buffer(gap + 20.0))
+    if part.is_empty:
+        return math.inf, None
+    if part.geom_type != "LineString":
+        # Only the piece at the closest point: a street cut by a traffic diverter has a stub
+        # on each side of the cross street, which together are not a side-by-side stretch.
+        merged = linemerge(part) if part.geom_type == "MultiLineString" else part
+        pieces = list(getattr(merged, "geoms", [merged]))
+        part = min((g for g in pieces if g.length > 0), key=lambda g: g.distance(pa), default=None)
+        if part is None:
+            return math.inf, None
+    return part.length, nearest_points(part, part.centroid)[0]
+
+
+def _near_miss(index: AreaIndex, ea, ga, eb, gb, max_stretch: float):
+    """(x, y, gap, stretch) of a near miss between two street pieces, or None if parallel.
+
+    If the streets run side by side for longer than `max_stretch`, their "closest point" could
+    be anywhere along the block (parallel streets), so it is not a near miss.
+    """
+    pa, pb = nearest_points(ga, gb)
+    gap = pa.distance(pb)
+    la, ma = _near_stretch(index, ea, pa, eb, gap)
+    lb, mb = _near_stretch(index, eb, pb, ea, gap)
+    stretch, mid, other = (la, ma, eb) if la <= lb else (lb, mb, ea)
+    if stretch > max_stretch:
+        return None
+    if stretch <= 40.0:                   # one street ends at, or points to, the gap
+        return (pa.x + pb.x) / 2, (pa.y + pb.y) / 2, gap, stretch
+    # A short street beside the other one (a cul-de-sac): the middle of its near stretch.
+    q = nearest_points(_local_street(index, other, mid, 300.0), mid)[0]
+    return (mid.x + q.x) / 2, (mid.y + q.y) / 2, gap, stretch
+
+
 def _pair_points(index: AreaIndex, ea, eb, ds):
     """Crossing points (or near misses) between two named streets, as (x, y, kind, gap)."""
     cache = index.__dict__.setdefault("_pair_cache", {})
     key = (ea.key, eb.key)
     if key in cache:
         return cache[key]
-    near_gap = float(ds.precision.get("near_intersection_max_gap_m", 40))
+    near_gap = float(ds.precision.get("near_intersection_max_gap_m", 100))
+    merge_m = float(ds.precision.get("intersection_merge_m", 60))
+    max_stretch = float(ds.precision.get("near_side_by_side_max_m", 100))
     geoms_a = [index.seg_geom[s] for s in ea.segs]
     tree_b = _entry_tree(index, eb)
-    ia, ib = tree_b.query(geoms_a, predicate="dwithin", distance=near_gap)
-    crossings, nears = [], []
+    out = []
+    ia, ib = tree_b.query(geoms_a, predicate="intersects")
     for i, j in zip(ia, ib):
-        ga, gb = geoms_a[i], tree_b.geometries[j]
-        sa, sb = ea.segs[i], eb.segs[j]
-        if ga.intersects(gb):
-            inter = ga.intersection(gb)
-            for part in getattr(inter, "geoms", [inter]):
-                if part.is_empty:
-                    continue
+        inter = geoms_a[i].intersection(tree_b.geometries[j])
+        for part in getattr(inter, "geoms", [inter]):
+            if not part.is_empty:
                 p = part if part.geom_type == "Point" else part.centroid
-                crossings.append((p.x, p.y, sa, sb))
-        else:
-            pa, pb = nearest_points(ga, gb)
-            nears.append(((pa.x + pb.x) / 2, (pa.y + pb.y) / 2, sa, sb, pa.distance(pb)))
-    out = ([(x, y, "intersection", 0.0, sa, sb) for x, y, sa, sb in crossings] if crossings else
-           [(x, y, "near_intersection", g, sa, sb) for x, y, sa, sb, g in nears])
+                out.append((p.x, p.y, "intersection", 0.0, ea.segs[i], eb.segs[j], 0.0))
+    if not out:
+        # Near misses: judge each distinct place once, from its closest pair of pieces.
+        ia, ib = tree_b.query(geoms_a, predicate="dwithin", distance=near_gap)
+        pairs = []
+        for i, j in zip(ia, ib):
+            pa, pb = nearest_points(geoms_a[i], tree_b.geometries[j])
+            pairs.append((pa.distance(pb), (pa.x + pb.x) / 2, (pa.y + pb.y) / 2, i, j))
+        judged: list[tuple[float, float]] = []
+        for gap, mx, my, i, j in sorted(pairs):
+            if any(math.hypot(mx - x, my - y) <= merge_m for x, y in judged):
+                continue
+            judged.append((mx, my))
+            near = _near_miss(index, ea, geoms_a[i], eb, tree_b.geometries[j], max_stretch)
+            if near:                      # None: parallel streets, not a near miss
+                x, y, g, stretch = near
+                out.append((x, y, "near_intersection", g, ea.segs[i], eb.segs[j], stretch))
     cache[key] = out
     return out
 
@@ -394,11 +457,19 @@ def locate_intersection(cands_a: list[Candidate], cands_b: list[Candidate], inde
                 spread = max(math.hypot(x - cx, y - cy) for x, y in zip(xs, ys))
                 kind = group[0][2]
                 gap = min(p[3] for p in group)
+                stretch = max(p[6] for p in group)
                 motorway = any(index.seg_type[p[4]] in MOTORWAY_TYPES or
                                index.seg_type[p[5]] in MOTORWAY_TYPES for p in group)
-                prec = max(10.0, spread) if kind == "intersection" else gap / 2 + 10.0
-                flags = ca.flags + cb.flags + (("motorway",) if motorway else ())
-                detail = f"{len(group)} crossing point(s)" if kind == "intersection" else f"gap {gap:.0f} m"
+                if kind == "intersection":
+                    prec = max(10.0, spread)
+                elif stretch <= 40.0:
+                    prec = gap / 2 + 10.0
+                else:                     # a cul-de-sac beside the street: along it, too
+                    prec = math.hypot(gap / 2, stretch / 2) + 10.0
+                flags = ca.flags + cb.flags + (("motorway",) if motorway else ()) + (
+                    ("side_by_side",) if kind != "intersection" and stretch > 40.0 else ())
+                detail = (f"{len(group)} crossing point(s)" if kind == "intersection" else
+                          f"gap {gap:.0f} m" + (f", side by side for {stretch:.0f} m" if stretch > 40.0 else ""))
                 locs.append(Location(cx, cy, kind, prec, "osm_geometry",
                                      (ca.entry.display, cb.entry.display), flags,
                                      ca.penalty + cb.penalty, index.in_core(cx, cy), detail))

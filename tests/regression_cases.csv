@@ -35,3 +35,7 @@ cambridge,"Sennott Park & Broadway, Cambridge, MA",matched,poi,Sennott Park,park
 norfolk,"8500 OCONNER CRES, Norfolk, VA",matched,block,Oconner Crescent,OSM street is 'O Connor Crescent'; addresses say Oconner
 saint_paul,"1395 LINCOLN AV, Saint Paul, MN",matched,interpolated,Lincoln Avenue,exact neighbours beat a block fallback elsewhere
 saint_paul,"1275 SUMMIT AV, Saint Paul, MN",matched,block,Summit Avenue,two address points at both ends of a long block
+berkeley,"WA00 ST & DERBY ST, BERKELEY, CA",unmatched,,,Ward St and Derby St are parallel (84 m apart): not a near miss
+san_jose,"KENNEDY AV & NEWTON AV, San Jose, CA",unmatched,,,parallel streets 81 m apart
+san_jose,"PORTSWOOD CL & EARLSWOOD CT, San Jose, CA",matched,near_intersection,Earlswood Court,cul-de-sac ending 81 m from the other street
+san_jose,"EDEN AV & ONYX CT, San Jose, CA",matched,near_intersection,Onyx Court,short court beside the avenue (side by side)

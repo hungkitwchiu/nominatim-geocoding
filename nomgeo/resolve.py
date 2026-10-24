@@ -72,7 +72,7 @@ def _score_entries(sn: StreetName, keys, index: AreaIndex, tier: str, extra_flag
                    unreliable=frozenset()):
     """Score candidate entries for direction/type agreement and keep the least relaxed."""
     scored = []
-    for key in keys:
+    for key in sorted(keys):            # sorted: the same result on every run
         e = index.entries[key]
         if e.is_ref:
             continue
