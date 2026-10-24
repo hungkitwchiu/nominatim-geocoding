@@ -247,12 +247,16 @@ def _resolve_tiers(text: str, index: AreaIndex, ds, truncated: bool = False,
             if cands:
                 return out + cands
 
-    # Tier: typo tolerance.
-    keys, tier = _fuzzy_keys(sn, index, min_len)
-    if keys:
-        cands = score(sn, keys, tier)
-        if cands:
-            return out + cands
+    # Tier: typo tolerance, only for a name that does not exist here at all.  If the name
+    # exists but was refused above (several types, a conflicting direction), a street one
+    # letter away is not a better reading ("GORDON AV" must not become "Dordon Street"), and a
+    # typo is never combined with a changed type.
+    if not index.by_base.get(sn.base_key):
+        keys, tier = _fuzzy_keys(sn, index, min_len)
+        if keys:
+            cands = [c for c in score(sn, keys, tier) if "type_changed" not in c.flags]
+            if cands:
+                return out + cands
 
     # Last resort: a bare 2-3 digit number with no such numbered street is a route ("87" = CA 87).
     if not out and re.fullmatch(r"\d{2,3}", text.strip()):

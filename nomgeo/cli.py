@@ -11,7 +11,9 @@ from collections import Counter
 from pathlib import Path
 
 from .area import load_area
+from .cache import KVCache
 from .config import PROJECT_DIR, load_dataset
+from .nominatim import NominatimClient
 from .db import connect, data_version
 from .parse import parse_record
 from .pipeline import detect_numbering, geocode_record, read_addresses, reason_group, run
@@ -48,6 +50,8 @@ def cmd_explain(args) -> None:
     conn = connect(ds.database)
     dv = data_version(conn)
     index, info = load_area(conn, ds, dv)
+    # The same named-place search as a run (answers come from the cache when available).
+    client = NominatimClient(ds.nominatim_url, KVCache(Path(ds.cache_dir) / "nominatim.sqlite"), dv)
     mode = ds.numbering if ds.numbering != "auto" else detect_numbering(
         [parse_record(a, ds) for a in read_addresses(ds)[:5000]])
     for raw in args.address:
@@ -64,7 +68,7 @@ def cmd_explain(args) -> None:
                       f"pieces={len(c.entry.segs)} separate_streets={len(cl)}")
             if not cands:
                 print("     (none)")
-        row = geocode_record(raw, index, ds, mode, None)
+        row = geocode_record(raw, index, ds, mode, client)
         print("  result:", json.dumps({k: v for k, v in row.items() if v not in (None, "")}))
 
 

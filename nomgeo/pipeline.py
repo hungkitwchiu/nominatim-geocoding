@@ -34,7 +34,7 @@ OUTPUT_FIELDS = ["address", "status", "match_type", "lat", "lon", "precision_m",
                  "flags", "reason", "kind", "in_city", "penalty", "detail"]
 # Types that usually name a place rather than a street ("JEFFERSON PARK", "CENTRAL SQ"):
 # never swap them for a different street type.
-PLACE_TYPES = {"PARK", "PLZ", "SQ", "CTR", "MALL", "STA", "CMN", "CMNS", "GRN"}
+PLACE_TYPES = {"PARK", "PLZ", "SQ", "CTR", "MALL", "STA", "CMN", "CMNS", "GRN", "CRSE", "CLB"}
 
 
 def code_fingerprint() -> str:
@@ -132,8 +132,17 @@ def _attempt(rec: Record, index, ds, mode, client):
 
 def geocode_record(raw: str, index, ds: Dataset, mode: str, client) -> dict:
     rec = parse_record(raw, ds)
-    if rec.kind == COORDINATES and not ds.accept.get("coordinates_in_text", False):
-        return _row(raw, rec, None, "coordinates in text (not accepted by policy)", index)
+    if rec.kind == COORDINATES:
+        if not ds.accept.get("coordinates_in_text", False):
+            return _row(raw, rec, None, "coordinates in text (not accepted by policy)", index)
+        lat, lon = rec.coords
+        left, top, right, bottom = index.bbox
+        if not (min(bottom, top) <= lat <= max(bottom, top) and min(left, right) <= lon <= max(left, right)):
+            return _row(raw, rec, None, "coordinates in text lie outside the search area", index)
+        x, y = index.proj.point(lon, lat)
+        loc = Location(x, y, "coordinates", 25.0, "record", (), ("coordinates_in_text",), 0,
+                       index.in_core(x, y), f"{lat}, {lon}")
+        return _row(raw, rec, loc, None, index)
     if rec.kind not in (ADDRESS, STREET, INTERSECTION, BETWEEN):
         return _row(raw, rec, None, rec.note, index)
 
@@ -165,16 +174,16 @@ def _single(rec, text, number, index, ds, mode, client):
             loc, reason = locate_number(cands, number, mode, index, ds)
         else:
             loc, reason = locate_street(cands, index, ds)
-        if loc:
-            return loc, None, ()
-    else:
-        reason = f"street not found: {text}"
+        # The street exists, so never swap it for a place that shares its name
+        # ("500 BROADWAY" is not the Broadway subway stop, "400 GILMAN" not "924 Gilman").
+        return (loc, None, ()) if loc else (None, reason, ())
+    reason = f"street not found: {text}"
     if not _poi_allowed(text, ds):
         return None, reason, ()
     poi, poi_reason = find_poi(text, index, ds, client)
     if poi:
         return poi, None, (("number_ignored",) if number is not None else ())
-    return None, (reason if not poi_reason or cands else poi_reason), ()
+    return None, poi_reason or reason, ()
 
 
 def _intersection(rec, index, ds, mode, client):
@@ -287,7 +296,9 @@ def run(ds: Dataset, jobs: int = 4, use_cache: bool = True, limit: int | None = 
     mode = ds.numbering
     if mode == "auto":
         mode = detect_numbering([parse_record(a, ds) for a in addresses])
-    fp = f"{ds.config_hash}|{code_fingerprint()}|{dv}|{mode}"
+    # The area key covers the box, the city boundary, the data and the index code, so a run
+    # whose boundary lookup came out differently never shares cached results with this one.
+    fp = f"{ds.config_hash}|{code_fingerprint()}|{dv}|{mode}|{area_info['key']}"
     keys = {a: hashlib.sha1(f"{a}\x1f{fp}".encode()).hexdigest() for a in addresses}
     rcache = KVCache(Path(ds.cache_dir) / "results.sqlite")
     cached = rcache.get_many(list(keys.values())) if use_cache else {}
@@ -313,7 +324,9 @@ def run(ds: Dataset, jobs: int = 4, use_cache: bool = True, limit: int | None = 
     bar.close()
     for r in new_rows:
         results[r["address"]] = r
-    rcache.put_many((keys[r["address"]], r) for r in new_rows if r.get("reason", "").find("internal error") < 0)
+    # Errors (a crash, a Nominatim outage) are retried next time rather than cached.
+    rcache.put_many((keys[r["address"]], r) for r in new_rows
+                    if not re.search(r"internal error|nominatim error", r.get("reason") or ""))
     t_geo = time.time() - t1
 
     rows = [results[a] for a in addresses]
@@ -329,14 +342,16 @@ def run(ds: Dataset, jobs: int = 4, use_cache: bool = True, limit: int | None = 
 def reason_group(reason: str) -> str:
     """Collapse specific reasons ('street not found: OAK ST') into report categories."""
     r = reason or ""
-    for pat, label in [(r"^street not found", "street not found in area"),
+    for pat, label in [(r"same-named street outside the city", "number only on a same-named street outside the city"),
+                       (r"^street not found", "street not found in area"),
                        (r"^house number not found", "house number not found on street"),
+                       (r"^house number \d+ is outside", "number outside the street's known numbers"),
                        (r"^streets do not meet", "streets do not meet"),
                        (r"^ambiguous", "ambiguous (several places fit)"),
                        (r"^street too long", "street-only record on a long street"),
                        (r"interchange", "highway interchange (policy)"),
                        (r"motorway", "on a motorway (policy)"),
-                       (r"ramp or direction", "ramp / direction of travel"),
+                       (r"ramp or direction|direction of travel", "ramp / direction of travel"),
                        (r"interstate", "interstate mile marker / interstate only"),
                        (r"named place too large", "named place too large"),
                        (r"^too imprecise", "evidence too imprecise"),

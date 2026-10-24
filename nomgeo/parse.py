@@ -179,6 +179,9 @@ def parse_record(raw: str, ds, redacted_name: bool = False) -> Record:
         # "CORNHUSKER HWY EB & N 23RD ST": the direction qualifies a lane, not the place.
         text = " ".join(_TRAVEL_DIR_RE.sub(" ", text).split())
         rec.flags.append("travel_direction_removed")
+        if not text.replace("&", "").strip():
+            rec.kind, rec.note = HIGHWAY, "direction of travel only"
+            return rec
 
     # San Jose "VINE ST S & O GOODYEAR ST" = on Vine St, south of Goodyear St.
     m = re.match(r"^(.+?) (N|S|E|W) & O (.+)$", text)
@@ -209,6 +212,8 @@ def parse_record(raw: str, ds, redacted_name: bool = False) -> Record:
             rec.wildcard_first = True
             rec.flags.append("redacted_name")
 
+    # Lincoln "000000 4800 DORIS BAIR CR": a zero padding field in front of the real number.
+    text = re.sub(r"^0+\s+(?=\d+\s)", "", text)
     number = None
     m = _NUMBER_RE.match(text)
     if m and not rec.wildcard_first:

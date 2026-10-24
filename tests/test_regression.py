@@ -48,11 +48,16 @@ class Regression(unittest.TestCase):
             with self.subTest(case["address"]):
                 ds, index, mode, client = self._env(case["dataset"])
                 row = geocode_record(case["address"], index, ds, mode, client)
-                self.assertEqual(row["status"], case["expect_status"], f"{case['why']} -> {row}")
+                if case["expect_status"]:
+                    self.assertEqual(row["status"], case["expect_status"], f"{case['why']} -> {row}")
                 if case["expect_type"]:
                     self.assertEqual(row.get("match_type"), case["expect_type"], f"{case['why']} -> {row}")
                 if case["expect_name"]:
                     self.assertIn(case["expect_name"], row.get("matched", ""), f"{case['why']} -> {row}")
+                if case.get("forbid_name"):
+                    self.assertNotIn(case["forbid_name"], row.get("matched") or "", f"{case['why']} -> {row}")
+                if case.get("expect_in_city"):
+                    self.assertEqual(str(row.get("in_city")), case["expect_in_city"], f"{case['why']} -> {row}")
 
 
 if __name__ == "__main__":

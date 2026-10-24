@@ -62,22 +62,37 @@ def choose(locs: list[Location], ds, what: str) -> tuple[Location | None, str | 
     if not locs:
         return None, None
     radius = float(ds.precision.get("ambiguity_radius_m", 80))
-    best_pen = min(l.penalty for l in locs)
-    tier = [l for l in locs if l.penalty == best_pen]
-    best_kind = min(rank(l) for l in tier)
-    tier = [l for l in tier if rank(l) == best_kind]
+
+    def best_of(group):
+        pen = min(l.penalty for l in group)
+        tier = [l for l in group if l.penalty == pen]
+        kind = min(rank(l) for l in tier)
+        return [l for l in tier if rank(l) == kind]
 
     def compact(group):
         xs = np.array([l.x for l in group]); ys = np.array([l.y for l in group])
         return float(np.max(np.hypot(xs - xs.mean(), ys - ys.mean()))) <= radius
 
+    def places(group):
+        return len({(round(l.x / radius), round(l.y / radius)) for l in group})
+
+    tier = best_of(locs)
+    if not any(l.in_core for l in tier):
+        # The least-relaxed reading lies outside the city.  For a department's own records an
+        # in-city reading that needs a little more relaxation wins: "400 34TH ST, Norfolk" is
+        # Norfolk's West 34th Street (direction left out), not Virginia Beach's 34th Street.
+        in_city = [l for l in locs if l.in_core and l.penalty <= tier[0].penalty + 3]
+        if in_city:
+            alt = best_of(in_city)
+            if compact(alt):
+                return _merge(alt, ("preferred_in_city",)), None
+            return None, f"ambiguous {what}: {places(alt)} different places in the city"
     if compact(tier):
         return _merge(tier), None
     core = [l for l in tier if l.in_core]
     if core and len(core) < len(tier) and compact(core):
         return _merge(core, ("preferred_in_city",)), None
-    places = len({(round(l.x / radius), round(l.y / radius)) for l in tier})
-    return None, f"ambiguous {what}: {places} different places"
+    return None, f"ambiguous {what}: {places(tier)} different places"
 
 
 # --------------------------------------------------------------------------- numbers
@@ -216,13 +231,26 @@ def _merge_same_street(locs: list[Location], within_m: float) -> list[Location]:
     A street interrupted by a park or freeway is several pieces, and a long block can have
     its few address points at both ends; evidence of the same street and relaxation within
     `within_m` (block scale) is one place.  Numbering that restarts in another town is
-    kilometres away and stays separate.  A lone stray point is dropped when at least four
-    times as many points of the same street agree elsewhere.
+    kilometres away and stays separate.  A lone stray point on the same stretch (within
+    2 x `within_m`) is dropped when at least four times as many points agree there, but an
+    in-city place is never dropped in favour of one outside the city.
     """
     out, by_name = [], {}
     for l in locs:
         by_name.setdefault((l.names, l.penalty, rank(l)), []).append(l)
     for group in by_name.values():
+        strays, dominant = set(), set()
+        for l in group:
+            if l.weight > 2:
+                continue
+            for h in group:
+                if (h is not l and h.weight >= max(4.0, 4 * l.weight) and (h.in_core or not l.in_core)
+                        and math.hypot(h.x - l.x, h.y - l.y) <= 2 * within_m):
+                    strays.add(id(l))
+                    dominant.add(id(h))
+                    break
+        group = [replace(l, flags=l.flags + ("outlier_points_dropped",)) if id(l) in dominant else l
+                 for l in group if id(l) not in strays]
         merged = [[l] for l in group]
         changed = True
         while changed:
@@ -235,13 +263,7 @@ def _merge_same_street(locs: list[Location], within_m: float) -> list[Location]:
                         break
                 if changed:
                     break
-        places = [_merge(m) if len(m) > 1 else m[0] for m in merged]
-        if len(places) > 1:
-            heavy = max(places, key=lambda l: l.weight)
-            rest = sum(l.weight for l in places if l is not heavy)
-            if heavy.weight >= 4 * rest and all(l.weight <= 2 for l in places if l is not heavy):
-                places = [replace(heavy, flags=heavy.flags + ("outlier_points_dropped",))]
-        out += places
+        out += [_merge(m) if len(m) > 1 else m[0] for m in merged]
     return out
 
 
@@ -256,16 +278,57 @@ def locate_number(cands: list[Candidate], number: int, mode: str, index: AreaInd
                 locs.append(Location(x, y, mt, prec, src, (c.entry.display,), c.flags + fl,
                                      c.penalty, index.in_core(x, y), detail, weight))
     locs = _merge_same_street(locs, float(ds.precision.get("same_street_merge_m", 400)))
+    names = "/".join(sorted({c.entry.display for c in cands})[:3])
     if locs:
-        return choose(locs, ds, "street/number")
+        loc, reason = choose(locs, ds, "street/number")
+        if loc is None or loc.in_core or index.core is None:
+            return loc, reason
+        # The evidence lies outside the city.  If the record's street also exists inside the
+        # city, the record means that street and its block is just missing from the data:
+        # "1715 COMO AV, Saint Paul" is Saint Paul's Como Avenue, not Southeast Como Avenue in
+        # Minneapolis.  (Within 300 m of the in-city street, e.g. the far side of a border
+        # street, the evidence is kept.)
+        in_city = [c for c in cands if c.penalty <= loc.penalty
+                   and any(cl.in_core for cl in index.clusters(c.entry))]
+        p = shapely.Point(loc.x, loc.y)
+        if not in_city or min(index.seg_geom[s].distance(p) for c in in_city
+                              for cl in index.clusters(c.entry) if cl.in_core for s in cl.segs) <= 300:
+            return loc, reason
+        cands = in_city
+        names = "/".join(sorted({c.entry.display for c in cands})[:3])
+        loc2, _ = (locate_street(cands, index, ds, flag="number_not_found")
+                   if _fallback_allowed(index, cands, number) else (None, None))
+        if loc2 and loc2.in_core:
+            return loc2, None
+        return None, (f"house number not found on {names} in the city "
+                      f"(a same-named street outside the city has it)")
     if all(_motorway_entry(index, c.entry) for c in cands):
         return None, "address on a motorway"
-    # No number evidence anywhere: fall back to a short street, if allowed.
+    # No evidence for this number: fall back to a short street, but only when the street the
+    # record most likely means does not contradict it ("1400 MASON ST" is not on a Mason Street
+    # numbered 4-18, and must not move to some other short street instead).
+    if not _fallback_allowed(index, cands, number):
+        return None, f"house number {number} is outside the numbers known on {names}"
     loc, reason = locate_street(cands, index, ds, flag="number_not_found")
     if loc:
         return loc, None
-    names = "/".join(sorted({c.entry.display for c in cands})[:3])
     return None, f"house number not found on {names}" + (f" (street-level fallback: {reason})" if reason else "")
+
+
+def _fallback_allowed(index: AreaIndex, cands, number: int) -> bool:
+    """A street-level fallback needs every least-relaxed candidate to fit the number."""
+    best = min(c.penalty for c in cands)
+    return all(_number_plausible(index, c.entry, number) for c in cands if c.penalty == best)
+
+
+def _number_plausible(index: AreaIndex, entry, number: int, margin: int = 100) -> bool:
+    """True when a street has no known numbers, or `number` lies near the range it has."""
+    known = []
+    for s in entry.segs:
+        pid = index.seg_place[s]
+        known += [n for n, _, _ in index.points.get(pid, ())]
+        known += [b for r in index.ranges.get(pid, ()) for b in (r[0], r[1])]
+    return not known or min(known) - margin <= number <= max(known) + margin
 
 
 # ------------------------------------------------------------------------ street only
@@ -287,20 +350,31 @@ def locate_street(cands: list[Candidate], index: AreaIndex, ds, flag: str = "str
     # Close variants count too: if "84TH ST" is a stub but "S 84TH ST" also exists, the
     # record could mean either, so all of them must agree on one place.  Pieces that touch
     # (a stub continuing its neighbour) are one place.
-    groups: list[list] = []
+    items = []
     for c in cands:
         # Variants matter when the record is less specific than they are (no direction or
         # type given), not when the record's own direction matched exactly.
         looser = {"direction_added", "type_missing"} & set(c.flags)
         if c.penalty > best + 2 or (c.penalty > best and not looser):
             continue
-        for cl in index.clusters(c.entry):
-            for g in groups:
-                if any(cl.geom.distance(o.geom) <= 30.0 for _, o in g):
-                    g.append((c, cl))
-                    break
-            else:
-                groups.append([(c, cl)])
+        items += [(c, cl) for cl in index.clusters(c.entry)]
+    # Connected groups of touching pieces (union-find, so the order of candidates is irrelevant).
+    parent = list(range(len(items)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(items)):
+        for j in range(i + 1, len(items)):
+            if items[i][1].geom.distance(items[j][1].geom) <= 30.0:
+                parent[find(i)] = find(j)
+    by_root: dict[int, list] = {}
+    for i, it in enumerate(items):
+        by_root.setdefault(find(i), []).append(it)
+    groups = list(by_root.values())
     extra: tuple = ()
     if len(groups) > 1:
         core = [g for g in groups if any(cl.in_core for _, cl in g)]
@@ -336,6 +410,10 @@ def _entry_tree(index: AreaIndex, entry):
     if t is None:
         t = cache[entry.key] = STRtree([index.seg_geom[s] for s in entry.segs])
     return t
+
+
+# A gap this small between two streets is a junction drawn slightly apart.
+SMALL_GAP_M = 15.0
 
 
 def _local_street(index: AreaIndex, entry, p, radius: float):
@@ -411,22 +489,33 @@ def _pair_points(index: AreaIndex, ea, eb, ds):
             if not part.is_empty:
                 p = part if part.geom_type == "Point" else part.centroid
                 out.append((p.x, p.y, "intersection", 0.0, ea.segs[i], eb.segs[j], 0.0))
-    if not out:
-        # Near misses: judge each distinct place once, from its closest pair of pieces.
-        ia, ib = tree_b.query(geoms_a, predicate="dwithin", distance=near_gap)
-        pairs = []
-        for i, j in zip(ia, ib):
-            pa, pb = nearest_points(geoms_a[i], tree_b.geometries[j])
-            pairs.append((pa.distance(pb), (pa.x + pb.x) / 2, (pa.y + pb.y) / 2, i, j))
-        judged: list[tuple[float, float]] = []
-        for gap, mx, my, i, j in sorted(pairs):
-            if any(math.hypot(mx - x, my - y) <= merge_m for x, y in judged):
-                continue
-            judged.append((mx, my))
-            near = _near_miss(index, ea, geoms_a[i], eb, tree_b.geometries[j], max_stretch)
-            if near:                      # None: parallel streets, not a near miss
-                x, y, g, stretch = near
-                out.append((x, y, "near_intersection", g, ea.segs[i], eb.segs[j], stretch))
+    # Near misses: judge each distinct place once, from its closest pair of pieces.  A gap of a
+    # few metres is a junction drawn slightly apart (a traffic diverter) and counts as a
+    # crossing; when the streets also cross elsewhere it is a second junction, which makes the
+    # record ambiguous.  Wider gaps only count when the streets do not cross at all.
+    crossed = bool(out)
+    ia, ib = tree_b.query(geoms_a, predicate="dwithin", distance=SMALL_GAP_M if crossed else near_gap)
+    pairs = []
+    for i, j in zip(ia, ib):
+        if geoms_a[i].intersects(tree_b.geometries[j]):
+            continue
+        pa, pb = nearest_points(geoms_a[i], tree_b.geometries[j])
+        pairs.append((pa.distance(pb), (pa.x + pb.x) / 2, (pa.y + pb.y) / 2, i, j))
+    judged = [(p[0], p[1]) for p in out]
+    for gap, mx, my, i, j in sorted(pairs):
+        if any(math.hypot(mx - x, my - y) <= merge_m for x, y in judged):
+            continue
+        judged.append((mx, my))
+        near = _near_miss(index, ea, geoms_a[i], eb, tree_b.geometries[j], max_stretch)
+        if not near:                      # parallel streets, not a near miss
+            continue
+        x, y, g, stretch = near
+        if g <= SMALL_GAP_M and stretch <= 40.0:
+            out.append((x, y, "intersection", g, ea.segs[i], eb.segs[j], 0.0))
+        elif not crossed:
+            out.append((x, y, "near_intersection", g, ea.segs[i], eb.segs[j], stretch))
+    if any(p[2] == "intersection" for p in out):
+        out = [p for p in out if p[2] == "intersection"]
     cache[key] = out
     return out
 
@@ -467,7 +556,8 @@ def locate_intersection(cands_a: list[Candidate], cands_b: list[Candidate], inde
                 else:                     # a cul-de-sac beside the street: along it, too
                     prec = math.hypot(gap / 2, stretch / 2) + 10.0
                 flags = ca.flags + cb.flags + (("motorway",) if motorway else ()) + (
-                    ("side_by_side",) if kind != "intersection" and stretch > 40.0 else ())
+                    ("side_by_side",) if kind != "intersection" and stretch > 40.0 else ()) + (
+                    ("small_gap",) if kind == "intersection" and gap > 0 else ())
                 detail = (f"{len(group)} crossing point(s)" if kind == "intersection" else
                           f"gap {gap:.0f} m" + (f", side by side for {stretch:.0f} m" if stretch > 40.0 else ""))
                 locs.append(Location(cx, cy, kind, prec, "osm_geometry",

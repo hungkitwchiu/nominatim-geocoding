@@ -52,14 +52,14 @@ def name_matches(query: str, names: list[str]) -> bool:
     q = _tokens(query)
     if not q:
         return False
-    qs = "".join(sorted(q))
     for n in names:
         t = _tokens(n)
         if not t:
             continue
-        if q <= t or (len(t) >= 2 and t <= q) or "".join(clean(n).split()) == "".join(clean(query).split()):
-            return True
-        if qs == "".join(sorted(t)):
+        # The place must be called what the record says (or the record must spell out the
+        # place's full multi-word name), not merely contain one of its words: "GILMAN" is not
+        # the "924 Gilman" club and "BROADWAY" not the Broadway subway stop.
+        if t == q or (len(t) >= 2 and t <= q) or "".join(clean(n).split()) == "".join(clean(query).split()):
             return True
     return False
 

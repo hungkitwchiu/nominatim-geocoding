@@ -43,9 +43,10 @@ def find_boundary(conn, nominatim_url: str, city: str, state: str | None):
         params["state"] = STATE_NAMES.get(state.upper(), state)
     try:
         hits = requests.get(f"{nominatim_url}/search", params=params, timeout=30).json()
-    except Exception as exc:  # pragma: no cover - network failure
-        LOG.warning("boundary lookup failed for %s, %s: %s", city, state, exc)
-        return None
+    except Exception as exc:
+        # Without the boundary every result would change (in-city preference), so stop
+        # rather than produce and cache a different run.
+        raise RuntimeError(f"city boundary lookup failed for {city}, {state}: {exc}") from exc
     for h in hits:
         if h.get("osm_type") != "relation" or h.get("category") != "boundary":
             continue
@@ -76,6 +77,10 @@ def load_area(conn, ds, data_version: str, use_cache: bool = True) -> tuple[Area
         raise ValueError(f"{ds.name}: no bbox given and no boundary found for {ds.city}, {ds.state}")
     info = {"bbox": [round(v, 5) for v in bbox], "core_osm_relation": boundary[0] if boundary else None}
     key = hashlib.sha1(json_key(bbox, info["core_osm_relation"], data_version).encode()).hexdigest()[:16]
+    info["key"] = key
+    if ds.city and boundary is None:
+        LOG.warning("%s: no boundary found for %s, %s; matching without a city preference",
+                    ds.name, ds.city, ds.state)
     path = Path(ds.cache_dir) / "areas" / f"{ds.name}-{key}.pkl"
     if use_cache and path.exists():
         with open(path, "rb") as fh:

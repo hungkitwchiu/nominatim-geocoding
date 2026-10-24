@@ -138,6 +138,9 @@ class AreaIndex:
                 (left, bottom, right, top))
             rows = cur.fetchall()
         geoms = shapely.from_wkb([r[3] for r in rows])
+        # Closed loops (a crescent mapped as one closed way) come back as polygons; use their
+        # outline, or a crossing would be placed in the middle of the loop.
+        geoms = [g.boundary if g.geom_type in ("Polygon", "MultiPolygon") else g for g in geoms]
         geoms = shapely.transform(geoms, idx.proj.fwd_xy)
         for (place_id, typ, names_json, _), g in zip(rows, geoms):
             names = json.loads(names_json)
@@ -202,7 +205,12 @@ class AreaIndex:
                             WHERE parent_place_id = ANY(%s) AND housenumber IS NOT NULL""", (ids,))
             for parent, hn, addr_street, lon, lat in cur:
                 seg = self.place_to_seg.get(parent)
-                if addr_street and seg is not None:
+                if seg is not None and not addr_street and not self._clearly_nearest(seg, lon, lat):
+                    # A number with no street name was attached to the nearest road; keep it only
+                    # when that road is clearly the nearest (not a corner lot between two streets).
+                    self.dropped_points += 1
+                    continue
+                if seg is not None and addr_street:
                     # Nominatim attaches a house to the nearest road when no street with its
                     # addr:street name is close; such numbers would land on the wrong street.
                     ok = verdict.get((addr_street, seg))
@@ -220,7 +228,11 @@ class AreaIndex:
         # Spellings used by the addresses become alternative names of their street, which
         # also covers typos in OSM's own street names ("Golden Turyle Circle").
         for addr_street, seg in sorted(aliases):
-            self._add_name(addr_street, seg, alt=True)
+            # Only a spelling no real street in the area has: an addr:street typo must not
+            # merge this street with a different street of that name elsewhere.
+            existing = self.entries.get(split_street(addr_street).key())
+            if existing is None or existing.alt:
+                self._add_name(addr_street, seg, alt=True)
         with conn.cursor() as cur:
             for table, source in (("location_property_osmline", "osm_interpolation"),
                                   ("location_property_tiger", "tiger")):
@@ -239,6 +251,19 @@ class AreaIndex:
                         continue
                     self.ranges.setdefault(parent, []).append(
                         (min(start, end), max(start, end), step or 1, line, source))
+
+    def _clearly_nearest(self, seg: int, lon: float, lat: float) -> bool:
+        """Is street piece `seg` within 60 m of the point and at least 10 m nearer than any
+        street with a different name?"""
+        p = shapely.Point(*self.proj.point(lon, lat))
+        d = self.seg_geom[seg].distance(p)
+        if d > 60.0:
+            return False
+        keys = self.seg_keys[seg]
+        for i in self.tree().query(p.buffer(d + 10.0)):
+            if not (self.seg_keys[i] & keys) and self.seg_geom[i].distance(p) < d + 10.0:
+                return False
+        return True
 
     def _addr_street_fits(self, addr_street: str, seg: int) -> tuple[bool, bool]:
         """Is an address point's addr:street the street it is attached to?
@@ -259,9 +284,12 @@ class AreaIndex:
                 continue
             en = e.name
             if en.base_key == sn.base_key:
+                # Same name: the direction may be moved or left out, but the type must agree
+                # ("Sunnyhills Court" numbers do not belong on Sunnyhills Drive).
                 da = {d for d in (sn.predir, sn.postdir) if d}
                 db = {d for d in (en.predir, en.postdir) if d}
-                if not da or not db or da == db:
+                types_agree = not sn.suffix or not en.suffix or bool(sn.suffix & en.suffix)
+                if (not da or not db or da == db) and types_agree:
                     return True, False
                 continue
             b_sq = "".join(en.raw[1:] if en.predir else en.raw)

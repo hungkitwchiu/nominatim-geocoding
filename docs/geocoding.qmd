@@ -186,11 +186,22 @@ Each dataset has a **core** (the city boundary, looked up in Nominatim) and an *
 box** (the `bbox` in the dataset file, or the boundary's box plus `buffer_km`). All streets
 in the outer box are loaded into memory once: for San Jose that is 57,000 street pieces,
 20,000 distinct names and 396,000 OSM address points, read in about 5 seconds and then
-cached. Matches outside the core are kept but flagged `outside_city`, and when a record
-fits both a place inside and a place outside the city, the place inside wins
-(`preferred_in_city`). Incidents just across the city line (mutual aid, unincorporated
-pockets, a mailing-address city) are therefore still found, but never at the expense of an
-in-city match.
+cached. Matches outside the core are kept but flagged `outside_city`. Three rules keep them
+from displacing the city's own streets:
+
+* when a record fits a place inside and a place outside the city, the place inside wins
+  (`preferred_in_city`);
+* when the least-relaxed reading lies outside the city, an in-city reading that needs a little
+  more relaxation (up to 3 penalty points, such as a direction the record left out) wins:
+  `400 34TH ST, Norfolk` is Norfolk's West 34th Street, not Virginia Beach's 34th Street;
+* when the record's street exists inside the city, house-number evidence from a same-named
+  street more than 300 m outside the city is not used: `1715 COMO AV, Saint Paul` is not
+  Southeast Como Avenue in Minneapolis. It stays uncoded until Saint Paul's own Como Avenue
+  has numbers for that block.
+
+Incidents just across the city line (mutual aid, unincorporated pockets, the far side of a
+border street) and records for streets that exist only in a neighbouring city (a Virginia
+Beach record for Norfolk's Granby Street) are still placed, flagged.
 
 ## Reading the record {#sec-parse}
 
@@ -248,6 +259,11 @@ Within a tier, a record's direction and street type are compared with each candi
   Street, Park Terrace, Park Circle and other types, stays uncoded;
 * a **conflicting direction** (`S 56TH ST` vs North 56th Street) never matches.
 
+Typo tolerance is only used for a name that does not exist in the area at all. If
+`GORDON AV` exists but is refused (Norfolk has Gordon Street and Gordon Walk, so the type
+cannot be guessed), a street one letter away ("Dordon Street") is not taken instead, and a
+typo is never combined with a changed type.
+
 Every relaxation is recorded as a flag (`direction_added`, `type_missing`, `typo_1`, ...)
 and adds to the penalty; at most 6 is allowed per street.
 
@@ -265,9 +281,10 @@ dataset. The evidence, in order of preference:
    along the street.
 
 Real house numbers (Saint Paul) look for that exact number first, then a range containing
-it, then the neighbouring numbers (`interpolated`), and only then the block. When a street
-has no number evidence at all, the record is placed only if the whole street is short (see
-street-only below).
+it, then the neighbouring numbers (`interpolated`), and only then the block. When there is
+no evidence for the number, the record is placed only if the whole street is short (see
+street-only below) and the street's own known numbers do not contradict it: `1400 MASON ST,
+Cambridge` stays uncoded because Mason Street is numbered 4–18.
 
 The evidence is checked before it is used:
 
@@ -275,17 +292,22 @@ The evidence is checked before it is used:
   Nominatim attaches a house to the nearest road when no street with its name is close,
   which would put, for example, Louisville's airport "Terminal Drive" numbers on Crittenden
   Drive. A moved or missing direction ("6th Street East" on East 6th Street) and small
-  spelling differences are tolerated, and those spellings become alternative names of the
-  street. This also repairs typos in OSM itself: Norfolk's street is mapped as "O Connor
-  Crescent" but its 367 addresses say "Oconner Crescent", which is what the police write.
+  spelling differences are tolerated, but the street type must agree ("Sunnyhills Court"
+  numbers do not count for Sunnyhills Drive). The spellings become alternative names of the
+  street unless a real street elsewhere in the area already has that name. This also
+  repairs typos in OSM itself: Norfolk's street is mapped as "O Connor Crescent" but its 367
+  addresses say "Oconner Crescent", which is what the police write.
+* A number with no `addr:street` at all counts only if its street is clearly the nearest
+  (within 60 m and at least 10 m closer than any other street), not a corner lot between two.
 * A TIGER range counts only if at least half of it runs within 30 m of a street with the
   same name as the one Nominatim attached it to; Nominatim falls back to the nearest road
   when names differ (0.8% of Berkeley's ranges fail this check).
 * Evidence more than 150 m apart is treated as separate places. Long streets that cross town
   lines often restart their numbering: `0 MASSACHUSETTS AVE` has a 0–99 block in Boston,
   Cambridge and Arlington, and the one inside the city wins. Evidence for the same street
-  within 400 m is one block (a long block whose few addresses sit at both ends), and a lone
-  stray point is ignored when four times as many points agree elsewhere.
+  within 400 m is one block (a long block whose few addresses sit at both ends). A lone
+  stray point on the same stretch is ignored when four times as many points agree there,
+  but an in-city place is never discarded in favour of one outside the city.
 
 Candidate streets that still point to **different** places make the record ambiguous:
 `700 LITTLE CREEK RD, Norfolk` stays uncoded because both East and West Little Creek Road
@@ -294,8 +316,11 @@ have a 700 block.
 **Intersections.** The two streets' real geometries are intersected. Crossing points within
 60 m of each other (divided roads, slip lanes) are one junction. If the same two streets cross
 in two places more than 80 m apart (`MARTIN LUTHER KING JR WAY & ADELINE ST` in Berkeley
-cross near Ashby BART and again at 63rd St), the record is ambiguous. Junctions on a
-motorway are interchanges and not geocoded.
+cross near Ashby BART and again at 63rd St), the record is ambiguous. Two streets within
+15 m of each other count as meeting there (a junction drawn slightly apart, flag `small_gap`),
+so a second such junction makes the record ambiguous too. Loop streets that OSM stores as
+closed shapes are treated as their outline, so a crossing is never placed inside the loop.
+Junctions on a motorway are interchanges and not geocoded.
 
 If the streets do not touch but come within **100 m**, the record is a near miss
 (`near_intersection`). That covers a junction drawn with a small gap (Berkeley's traffic
@@ -322,14 +347,17 @@ but only when the whole street lies within 125 m of that point; long streets sta
 Weak relaxations (a changed type, a two-letter typo) are not accepted here, because nothing
 else confirms them.
 
-**Named places.** Text that is not a street (`FRESH POND GOLF COURSE`, `PORTER SQ`,
-`SENNOTT PARK`) is searched in Nominatim within the area. A result is used only if its
-name matches the record (a place called exactly that wins over places whose names merely
-contain it), it is the only such place, and it is small enough (radius ≤ 150 m; Danehy Park
-in Cambridge, 400 m across, is refused). Text that looks like a street name is
-never sent to this search, so `LEIGHTON ST` cannot match "Leighton Street Car Wash", and on
-an intersection the place must lie within 150 m of the other street (a "VTA Park and Ride"
-16 km from Snell Avenue is refused).
+**Named places.** Only when no street of that name exists in the area, text that is not a
+street (`FRESH POND GOLF COURSE`, `PORTER SQ`, `SENNOTT PARK`) is searched in Nominatim
+within the area. A street that exists is never swapped for a place sharing its name:
+`500 BROADWAY, Cambridge` is not the Broadway subway stop in Boston, and `400 GILMAN,
+Berkeley` is not the "924 Gilman" club. A result is used only if it is called what the record
+says (or the record spells out its full multi-word name), it is the only such place, and it
+is small enough (radius ≤ 150 m; Danehy Park in Cambridge, 400 m across, and Fresh Pond Golf
+Course, 650 m, are refused). Text that looks like a street name is never sent to this
+search, so `LEIGHTON ST` cannot match "Leighton Street Car Wash", and on an intersection the
+place must lie within 150 m of the other street (a "VTA Park and Ride" 16 km from Snell
+Avenue is refused).
 
 **Final checks.** A location with an estimated precision worse than 250 m is not accepted
 (`evidence too imprecise`).
@@ -364,6 +392,7 @@ an intersection the place must lie within 150 m of the other street (a "VTA Park
 | `near_intersection` | the middle of a gap of up to 100 m between the two streets | 15–60 m (up to ~80 m beside a cul-de-sac) |
 | `street` | the middle of a short street (street-only records) | 25–125 m |
 | `poi` | a small named place | 25–150 m |
+| `coordinates` | coordinates typed into the record (only with `accept.coordinates_in_text`) | as typed |
 
 Common flags: `direction_added` / `direction_dropped` / `direction_moved`,
 `type_missing` / `type_changed` / `type_unreliable`, `spacing`, `typo_1` / `typo_2`,
@@ -372,7 +401,8 @@ an alternative or old OSM name), `unit_removed`, `outside_city`, `preferred_in_c
 `number_not_found` (a short street was used because the number is not on it),
 `block_of_exact_number`, `between_known_numbers`, `offset_of_intersection` (San Jose
 `VINE ST S & O GOODYEAR ST`, "on Vine St south of Goodyear": precision at least 100 m),
-`second_chance`, `side_by_side` (a near miss beside a short street), `trailing_text`,
+`second_chance`, `side_by_side` (a near miss beside a short street), `small_gap` (streets
+drawn up to 15 m apart at a junction), `trailing_text`,
 `poi_side`, `outlier_points_dropped`.
 
 ::: {.callout-tip}
@@ -459,7 +489,11 @@ Three caches, all under `cache/`, each invalidated automatically:
 | `nominatim.sqlite` | raw Nominatim answers (boundaries, named places) | the data changes |
 
 The data version combines the OSM import date with the identity of the TIGER table, so a
-data update clears everything that depends on it. `--no-cache` ignores the caches.
+data update clears everything that depends on it. The results cache is also keyed on the
+area (box, city boundary, data and indexing code), and a failed city-boundary lookup stops the
+run instead of silently matching without the city. Records that hit an error (a crash, a
+Nominatim outage) are not cached and are retried on the next run. `--no-cache` ignores the
+caches.
 
 {{< include _generated/timing.md >}}
 
