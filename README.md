@@ -4,10 +4,10 @@ Batch geocoding of US police incident addresses on a self-hosted
 [Nominatim](https://nominatim.org/) database, built for research that maps incidents
 to census geographies.
 
-The current pipeline is the `nomgeo` package. It matches each record against the
-streets, address points and house-number ranges that exist in the police department's
-area, and labels every result with what was matched and how precise it is. Records that
-are not addresses, or that fit more than one place, stay uncoded with a stated reason.
+The geocoder is the `nomgeo` package. It matches each record against the streets,
+address points and house-number ranges that exist in the police department's area, and
+labels every result with what was matched and how precise it is. Records that are not
+addresses, or that fit more than one place, stay uncoded with a stated reason.
 
 Full documentation: [`docs/geocoding.qmd`](docs/geocoding.qmd) (rendered as `docs/geocoding.html`).
 
@@ -36,6 +36,10 @@ Outputs go to `outputs/<dataset>/`: `results.csv` (one row per input address),
 | `configs/<city>.yaml`, `configs/rules/<city>.csv` | one dataset: area, parsing options, local name fixes |
 | `tests/` | unit tests and regression cases (`python -m unittest discover -s tests -t .`) |
 | `docs/` | documentation (Quarto) |
-| `legacy/` | the earlier two-pass scripts and their documentation, kept for comparison (tag `two-pass-final`) |
+| `legacy/` | the earlier two-pass scripts and their documentation, kept for reference (tag `two-pass-final`) |
 
 Address files and outputs are not version-controlled (see `.gitignore`).
+
+## License
+
+MIT, see [`LICENSE`](LICENSE).

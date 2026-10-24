@@ -14,26 +14,29 @@ format:
 editor: source
 ---
 
-This page documents `nomgeo`, the geocoder that turns street addresses from US police
-records into latitude/longitude, using a self-hosted [Nominatim](https://nominatim.org/)
-database built from [OpenStreetMap](https://www.openstreetmap.org/) (OSM) and US Census
-TIGER house-number ranges. It replaces the earlier two-pass scripts (`geocode.py` and
-`geocode_pass2.py`), which are kept in the repository's `legacy/` folder for comparison.
+`nomgeo` turns the street addresses in US police records into latitude and longitude. It is
+built for research that maps incidents to census geographies (blocks, block groups, tracts)
+and runs entirely on your own [Nominatim](https://nominatim.org/) server, built from
+[OpenStreetMap](https://www.openstreetmap.org/) (OSM) and US Census TIGER house-number ranges.
 
-The design follows four rules.
+Police records are not postal addresses. Most give a hundred block (`1300 9TH ST`), an
+intersection (`UNIVERSITY AVE & 7TH ST`) or only a street, they use local abbreviations, and
+many are not addresses at all (`UNKNOWN`, highway ramps, other cities). `nomgeo` is designed
+around four rules:
 
 1. **Match against what exists.** Every record is compared with the streets, address points
-   and house-number ranges stored in the database for the police department's area,
-   instead of trying string variants until a search returns something.
-2. **No silent guesses.** If two different places fit a record, it stays uncoded and the
-   output says why.
+   and house-number ranges stored in the database for the police department's area.
+2. **No silent guesses.** A record is placed only where there is evidence for it. If two
+   different places fit, it stays uncoded and the output says why.
 3. **Every result says what it is:** a match type (house, block, intersection, ...), an
    estimated precision in metres, the street names that were matched, and which
    relaxations (typo, missing direction, ...) were needed.
 4. **Fast and repeatable.** The same input, settings and data always give the same result.
    About 250,000 records from eight cities take under four minutes from scratch, about a
-   minute after a rule change, and ten seconds when nothing changed (the old scripts took
-   over nine hours for seven of them).
+   minute after a rule change, and ten seconds when nothing changed.
+
+Everything runs locally, so there are no usage limits or fees, and the records, which often
+include victims' home addresses, never leave your machine.
 
 ::: {.callout-note appearance="simple"}
 Software used: Ubuntu 24.04, PostgreSQL 17.5 with PostGIS 3.5, Nominatim 5.1.0, Python 3.12,
@@ -41,45 +44,24 @@ the Geofabrik North America extract of May 2025, and Nominatim's preprocessed TI
 house-number data. The machine is a 6-core desktop with 64 GB RAM and an NVMe SSD.
 :::
 
-# Why the pipeline was rebuilt {#sec-why}
-
-The two-pass scripts reported match rates of 92–99%. Re-checking their outputs against
-the database showed that many of those matches were imprecise or wrong. These problems
-are common in geocoding workflows, so they are worth knowing about even if you never use
-this code.
-
-| What happened | Effect | Example |
-|---|---|---|
-| When a house number is not in OSM, Nominatim silently returns the **street** instead. The scripts accepted any result. | In a sample of 300 matches per city, only 14–47% were placed at an address; 52–82% were the centre of one arbitrary piece of the named street. | Every block of Dwight Way in Berkeley (2800, 2900, 3000, 3500) got the same point, up to 4 km from the address. |
-| The "false intersection" buffer of `500` was applied to longitude/latitude geometry, i.e. **500 degrees**, not 500 m. | "Two streets that come close" had no distance limit. Median gap in samples: 1.5 km (Berkeley), 2.4 km (Lincoln); 10% of Louisville's were more than 25 km apart. | `8TH ST & PAGE ST, Berkeley` placed where two unrelated streets were 4 km apart. |
-| Street names were matched as **substrings** (`ILIKE '%7th st%'`) and the first hit was taken. | `7th St` matched 27th St, `5th St` matched 35th St; Lincoln's lettered streets (`%o%`) matched almost anything. | `9TH & O, Lincoln` placed 12 km from the real corner; 1,453 Lincoln intersections were more than 250 m off. |
-| Only the first street was restricted to the city's box. | Some intersections were found in other cities. | `4TH ST & JONES ST, Berkeley` placed in San Francisco (14 km). |
-| Empty or number-only addresses were sent to Nominatim as they were. | They returned the **city centre**. | `, San Jose, CA` and `3100, Norfolk, VA`. |
-| Cleanup rules applied to every city. | `A → Avenue`, `R → Road`, `E → East` broke Lincoln's lettered streets ("A Street" became "Avenue Street"). | Lincoln's match rate was 77%, with many of the matches wrong. |
-
-The new pipeline addresses each of these by construction: it only places a number where
-there is number evidence, measures every distance in metres, compares whole normalised
-names, searches one bounded area per dataset, refuses empty records, and scopes rules to
-the dataset they were written for.
-
-::: {.callout-tip}
-## A lesson about the database itself
-Nominatim's tables in this installation had **no PostgreSQL planner statistics** (they are
-normally collected at the end of an import; here they were missing, so PostgreSQL never
-refreshed them). Lookups on the 23-million-row `word` table took 0.7 s instead of 0.07 ms,
-which made the TIGER import crawl at 6 lines per second. Running `ANALYZE;` once in the
-`nominatim` database fixed it (about 1,900 lines per second afterwards). If anything in
-Nominatim feels slow, check `SELECT relname, last_analyze FROM pg_stat_user_tables;`.
-:::
-
 # Requirements and installation {#sec-install}
 
 ## Nominatim with TIGER data
 
-A standard Nominatim installation is all the geocoder needs. Follow the official
+`nomgeo` needs a standard Nominatim installation and nothing else. Follow the official
 [installation manual](https://nominatim.org/release-docs/latest/admin/Installation/) and
 import an OSM extract that covers your cities (North America, the US, or a single state;
-a state extract is enough for one police department and fits on a laptop).
+a state extract is enough for one police department and fits on a laptop). Street geometry
+is read from Nominatim's own tables, so no second database is needed.
+
+::: {.callout-tip}
+## Check the planner statistics
+PostgreSQL normally collects table statistics at the end of an import. Without them, lookups
+on Nominatim's 23-million-row `word` table took 0.7 s instead of 0.07 ms on the machine
+above, and the TIGER import below ran at 6 lines per second instead of about 1,900.
+`SELECT relname, last_analyze, last_autoanalyze FROM pg_stat_user_tables;` shows whether they
+exist, and `ANALYZE;` in the `nominatim` database creates them.
+:::
 
 Then add the US Census TIGER house-number ranges, which supply house numbers for streets
 where OSM has none (see the [Nominatim TIGER guide](https://nominatim.org/release-docs/latest/customize/Tiger/)):
@@ -95,16 +77,9 @@ nominatim refresh --functions
 sudo systemctl restart nominatim
 ```
 
-On the machine above the import took 5 hours for the whole country (34 million ranges, at
-about 1,900 per second) and added 8.6 GB to the database. `nomgeo` reads the new table
-directly, and its caches notice the change by themselves.
-
-::: {.callout-note appearance="simple"}
-The earlier scripts needed a second, 366 GB `osm_raw` database (an osm2pgsql import) for
-intersections. `nomgeo` reads street geometry from Nominatim's own `placex` table, which
-holds the same named streets (19,929 vs 19,917 names in the San Jose area), so the second
-database is no longer needed.
-:::
+On the machine above the import took 5 hours for the whole country (34 million ranges) and
+added 8.6 GB to the database. It is worth it: TIGER raises the match rate of the example
+datasets from 75% to 86% (@sec-results).
 
 ## The Python package
 
@@ -121,9 +96,7 @@ role is sufficient.
 
 # Quick start {#sec-quickstart}
 
-A dataset is one CSV file with an `address` column in the form `street, city, state`
-(the same input as before; see the [earlier documentation](https://hungkitwchiu.github.io/doc.geocode.html)
-for preparing it), plus a small YAML file:
+A dataset is one CSV file of addresses (@sec-input) plus a small YAML file:
 
 ``` yaml
 # configs/berkeley.yaml
@@ -135,7 +108,7 @@ area:
   bbox: [-122.34, 37.92, -122.20, 37.84]   # optional outer box: left, top, right, bottom
 rules: configs/rules/berkeley.csv          # local name fixes (may be empty)
 parsing:
-  redacted_first_token: true    # Berkeley's "00" redaction, see below
+  redacted_first_token: true    # Berkeley's "00" redaction, see @sec-config
 ```
 
 ``` bash
@@ -161,8 +134,51 @@ UNIVERSITY AVE & 7TH ST, BERKELEY, CA
   candidates for '7TH ST':
      pen=0 'Seventh Street'        flags=[]  pieces=35 separate_streets=1
   result: {"status": "matched", "match_type": "intersection", "lat": 37.8682201,
-           "lon": -122.2966514, "precision_m": 10, "matched": "University Avenue & Seventh Street"}
+           "lon": -122.2966514, "precision_m": 10, "matched": "University Avenue & Seventh Street",
+           "source": "osm_geometry", "in_city": 1, "penalty": 0, "detail": "6 crossing point(s)"}
 ```
+
+# Preparing the input {#sec-input}
+
+The input is a CSV file with a column named `address` (another name can be set with
+`address_column` in the dataset file), one record per row, in the form `street, city, state`:
+
+``` default
+address
+"1300 9TH ST, BERKELEY, CA"
+"UNIVERSITY AVE & 7TH ST, BERKELEY, CA"
+"2900 BLOCK S 72ND ST, Lincoln, NE"
+```
+
+`results.csv` has one row per distinct `address`, with the text unchanged, so the column is
+the key for joining the results back to the original records. Build it from the original
+column without other edits; duplicates are removed automatically.
+
+`nomgeo` understands the usual police conventions by itself:
+
+* hundred-block numbers (`1300` = the 1300–1399 block) and real house numbers, detected per
+  dataset;
+* intersections written with `&`, `/`, `//`, `@`, `AT` or `AND`;
+* `BLOCK` and `BLK`, units and notes (`APT 6`, `# 1`, `(REAR)`, `SUITE`), and travel
+  directions on surface streets (`CORNHUSKER HWY EB`);
+* street-type and direction abbreviations (USPS Publication 28), ordinals (`7TH` = Seventh),
+  and `ST`/`MT`/`DR` at the start of a name (Saint, Mount, Doctor).
+
+Other conventions should be converted before geocoding, or with a rule file (@sec-config):
+
+``` default
+"EDWARDS AV + WILLOW ST"     →  "EDWARDS AV & WILLOW ST"      other connectors
+"205X SUMMIT AVE"            →  "2055 SUMMIT AVE"             masked digits
+"[2900]-[3000] ALMADEN RD"   →  "2950 ALMADEN RD"             number ranges
+"1300 9TH ST"                →  "1300 9TH ST, Berkeley, CA"   missing city and state
+```
+
+::: {.callout-tip}
+## Is the street in OSM?
+Search for a street on [openstreetmap.org](https://www.openstreetmap.org/) to see whether
+and how it is mapped. A street that is missing or misspelled there cannot be matched until
+it is fixed (@sec-iterate).
+:::
 
 # How a record is matched {#sec-how}
 
@@ -190,9 +206,11 @@ Each dataset has a **core** (the city boundary, looked up in Nominatim) and an *
 box** (the `bbox` in the dataset file, or the boundary's box plus `buffer_km`). All streets
 in the outer box are loaded into memory once: for San Jose that is 57,000 street pieces,
 20,000 distinct names, 395,000 OSM address points and 91,000 TIGER ranges. Building this
-index takes about 40 seconds, most of it checking the TIGER ranges (below); it is then
-cached, and loading it again takes about a second. Matches outside the core are kept but flagged `outside_city`. Three rules keep them
-from displacing the city's own streets:
+index takes about 40 seconds, most of it checking the TIGER ranges (@sec-locate); it is then
+cached, and loading it again takes about a second.
+
+Matches outside the core are kept but flagged `outside_city`. Three rules keep them from
+displacing the city's own streets:
 
 * when a record fits a place inside and a place outside the city, the place inside wins
   (`preferred_in_city`);
@@ -200,13 +218,13 @@ from displacing the city's own streets:
   more relaxation (up to 3 penalty points, such as a direction the record left out) wins:
   `400 34TH ST, Norfolk` is Norfolk's West 34th Street, not Virginia Beach's 34th Street;
 * when the record's street exists inside the city, house-number evidence from a same-named
-  street more than 300 m outside the city is not used: `1715 COMO AV, Saint Paul` is not
-  Southeast Como Avenue in Minneapolis. It stays uncoded until Saint Paul's own Como Avenue
-  has numbers for that block.
+  street more than 300 m outside the city is not used: `1715 COMO AV, Saint Paul` goes to Como
+  Avenue at the city line, never to Southeast Como Avenue in Minneapolis.
 
 Incidents just across the city line (mutual aid, unincorporated pockets, the far side of a
 border street) and records for streets that exist only in a neighbouring city (a Virginia
-Beach record for Norfolk's Granby Street) are still placed, flagged.
+Beach record for Norfolk's Granby Street) are still placed, flagged. Filter on `in_city` if
+your study area is the city itself.
 
 ## Reading the record {#sec-parse}
 
@@ -291,7 +309,8 @@ no evidence for the number, the record is placed only if the whole street is sho
 street-only below) and the street's own known numbers do not contradict it: `1400 MASON ST,
 Cambridge` stays uncoded because Mason Street is numbered 4–18.
 
-The evidence is checked before it is used:
+Nominatim's own search answers with the whole street when it does not know a house number;
+`nomgeo` never does that silently. The evidence is checked before it is used:
 
 * An OSM address point counts only if its own `addr:street` is the street it is attached to.
   Nominatim attaches a house to the nearest road when no street with its name is close,
@@ -338,9 +357,9 @@ How the point is placed depends on how the two streets approach each other:
   of that stretch, precision √((gap/2)² + (stretch/2)²) + 10 m, flag `side_by_side`
   (`EDEN AV & ONYX CT`, an 89 m court 92 m from the avenue, 74 m);
 * the two streets run side by side for more than 100 m (`near_side_by_side_max_m`): **not a
-  near miss**. Two parallel streets a block apart have no particular "closest point", which is
-  what produced the earlier pipeline's false intersections: `WARD ST & DERBY ST` in Berkeley,
-  84 m apart, stays uncoded.
+  near miss**. Two parallel streets a block apart have no particular closest point, so
+  `WARD ST & DERBY ST` in Berkeley (84 m apart) and `KENNEDY AV & NEWTON AV` in San Jose
+  (81 m) stay uncoded.
 
 When the exactly-named streets do not meet, one more attempt is made with names one letter
 away (`second_chance`), accepted only if those streets actually cross. The large search box
@@ -425,7 +444,7 @@ file can override any key.
 | Key | Default | Meaning |
 |---|---:|---|
 | `numbering` | `auto` | `hundred_block`, `exact`, or `auto` (≥ 80% of numbers end in 00 or 50) |
-| `precision.near_intersection_max_gap_m` | 100 | two streets this close count as meeting (raised from 40 m, see @sec-decisions) |
+| `precision.near_intersection_max_gap_m` | 100 | two streets this close count as meeting (@sec-decisions) |
 | `precision.near_side_by_side_max_m` | 100 | ...unless they run side by side for longer than this |
 | `precision.intersection_merge_m` | 60 | crossing points this close are one junction |
 | `precision.ambiguity_radius_m` | 80 | candidate places within this radius are one place |
@@ -455,17 +474,24 @@ Dataset-specific parsing options:
 | `between_hyphen: true` | Lincoln | `26TH & K-N ST` = 26th St between K and N |
 | `unreliable_types: [ST]` | Lincoln | the department writes ST for streets of any type (`HUNTINGTON ST` = Huntington Avenue) |
 
-**Rule files** (`configs/rules/<city>.csv`) keep the format of the old
-`legacy/name_cleanup_rules.csv` (`match,replace,notes`; whole words, case-insensitive, regular
-expressions allowed, `no-boundary` in the notes for partial words), but each file applies
-only to its own dataset. The city-specific rows of the old file were carried over; the
-generic abbreviation rows are now handled in code. One old rule was dropped because it was
-wrong: Saint Paul's `STRYKER → Saint Ryker` (OSM has Stryker Avenue).
+**Rule files** (`configs/rules/<city>.csv`) hold local spellings, one rule per row with the
+columns `match,replace,notes`. Matches are whole words and case-insensitive, regular
+expressions are allowed, `no-boundary` in the notes allows partial words, and lines starting
+with `#` are comments. Each file applies only to its own dataset. Street types, directions
+and other generic abbreviations are handled in code, so a rule file only needs what is
+particular to the city:
+
+``` default
+match,replace,notes
+M L KING JR,MARTIN LUTHER KING JR,Berkeley name
+STCLAIR,SAINT CLAIR,Saint Paul name
+NEW AUTUMN ST,N AUTUMN ST,San Jose name/typo
+VA BEACH,VIRGINIA BEACH,Norfolk abbreviation
+```
 
 # Working through unmatched records {#sec-iterate}
 
-The workflow of the earlier documentation still applies (inspect what is unmatched, fix
-what can be fixed, repeat), with better tools:
+Every unmatched record comes with a reason, and many can be fixed:
 
 1. `outputs/<name>/unmatched.csv` is sorted by reason, so a whole class of problems shows
    up together (`street not found: OCONNER CRES` ×22).
@@ -473,7 +499,7 @@ what can be fixed, repeat), with better tools:
    streets were considered with which penalties, and the final decision.
 3. Fix it in the narrowest place: a row in the dataset's rule file for a local spelling,
    a parsing option for a department-wide convention, the code for something general.
-4. Re-run. Thanks to the caches this takes seconds.
+4. Re-run. Only that dataset's records are matched again, which takes seconds.
 5. Add the case to `tests/regression_cases.csv` with the expected outcome, so a later
    change cannot quietly undo it, and run the tests:
    `python -m unittest discover -s tests -t .`
@@ -481,7 +507,7 @@ what can be fixed, repeat), with better tools:
 Some records will never match, and should not: other cities, `UNKNOWN`, a highway with
 no cross street, a street that exists in neither OSM nor TIGER. If a street is missing or
 misspelled in OSM, it can be fixed at [openstreetmap.org](https://www.openstreetmap.org/);
-the fix reaches this database at the next data update.
+the fix reaches your database with the next data update (@sec-speed).
 
 # Speed and caching {#sec-speed}
 
@@ -505,30 +531,31 @@ results of the three most recently used versions (so going back to the previous 
 still instant) and delete older ones. Deleting `cache/` is always safe; it is rebuilt on the
 next run.
 
-Run times for all eight cities, measured with `python -m nomgeo benchmark configs/*.yaml
---jobs 5` (which empties the caches first) on the machine described at the top:
+Run times for the eight example datasets, measured with
+`python -m nomgeo benchmark configs/*.yaml --jobs 5` (which empties the caches first) on the
+machine described at the top:
 
 {{< include _generated/timing.md >}}
 
-A cold run is mostly spent building the street indexes, which happens again only when the
-data or the indexing code changes.
+A run from scratch is mostly spent building the street indexes, which happens again only
+when the data or the indexing code changes. Only city boundaries and named places are
+looked up through Nominatim's search; everything else is matched in memory.
 
-Where the time went before: the second pass ran the expensive fuzzy-name search for every
-address before trying anything simpler, filtered names with an expression the trigram
-index could not use, and (because of the degree bug) compared every pair of matching
-streets in the box. The new pipeline loads the area once, matches in memory, and only
-calls Nominatim for named places.
+**Updating the data.** Nominatim can be kept current with `nominatim replication` (see the
+Nominatim manual). The caches notice the new data version by themselves.
 
-# Results for eight cities {#sec-results}
+# Example: eight police datasets {#sec-results}
+
+The tables below come from running `nomgeo` with the default settings on address records
+from eight US police departments. Saint Paul records real house numbers and the others
+hundred blocks. Intersections make up a quarter to a half of the records, except in Norfolk,
+where nearly all records are addresses; Lincoln also writes "between" records
+(`26TH & K-N ST`).
 
 {{< include _generated/results.md >}}
 
-The old match rates count the false positives described in @sec-why, so the two columns
-are not comparable as quality. Saint Paul's old output files are from an interrupted run
-and are left out of the comparisons.
-
-**What the TIGER ranges added.** The same code, run just before and just after the TIGER
-import (2026-10-24):
+**What the TIGER data adds.** The same eight datasets matched with OSM data only, and with
+the TIGER house-number ranges added:
 
 | City | Records | Matched, OSM only | Matched, with TIGER | Gained | Matches using TIGER numbers |
 |---|---:|---:|---:|---:|---:|
@@ -544,7 +571,7 @@ import (2026-10-24):
 
 TIGER matters most where OSM has few building addresses: the search areas of Lincoln and
 Saint Paul have 37,000 and 58,000 OSM address points, against 320,000 to 395,000 around
-Louisville, Norfolk, San Jose and Virginia Beach. There it lifted the match rate by 23 and
+Louisville, Norfolk, San Jose and Virginia Beach. There it lifts the match rate by 23 and
 35 percentage points; elsewhere by 0.6 to 3.7.
 
 **What the matches are.** Records by match type:
@@ -559,32 +586,19 @@ Median `precision_m` by match type:
 
 {{< include _generated/unmatched.md >}}
 
-**Compared with the earlier pipeline.** For each city, the share of the old matches that
-the new pipeline puts in the same place, moves by more than 250 m, or leaves uncoded:
-
-{{< include _generated/legacy.md >}}
-
-Spot checks of the disagreements found the old result to be the wrong one in the cases
-examined: segment centroids for addresses (Dwight Way), substring intersections (Lincoln's
-`9TH & O`, 12 km off), intersections in another city, and "false intersections" between
-streets kilometres apart. Records the new pipeline leaves uncoded are mostly blocks without
-house-number data, streets that do not meet, and records that fit two places.
-
-# Decisions and limitations {#sec-decisions}
+# Choices and limitations {#sec-decisions}
 
 **How close is "near" for two streets that do not touch?** This is the setting with the
 largest effect. San Jose records often name a cul-de-sac with its nearest through street,
-which can be 80–200 m away. With a 40 m limit, 2,989 San Jose records whose streets were 40–100 m
-apart stayed uncoded. On 2026-10-23 the limit was raised to 100 m, with precision gap/2 + 10 m.
-At the same time, parallel streets stopped counting as near misses at any gap. That removed
-104 earlier near misses under 40 m, such as `S 9TH ST & S 10TH ST`, whose closest point lies
-somewhere along a long stretch. Near misses now, by gap:
+which can be 80–200 m away. Near misses are accepted up to 100 m, each with its own
+precision (gap/2 + 10 m); with a 40 m limit, 1,693 of San Jose's 2,106 near intersections
+would stay uncoded. Near misses by gap:
 
 {{< include _generated/near.md >}}
 
-What remains of "streets do not meet". The first column after the total counts streets
-within 100 m of each other that run side by side for more than 100 m. In a sample of 200 of
-San Jose's, half ran side by side for over 250 m (truly parallel), and a quarter for
+Streets that run side by side are never near misses, at any gap (@sec-locate). The first
+column after the total below counts such pairs within 100 m of each other. In a sample of 200
+of San Jose's, half ran side by side for over 250 m (truly parallel), and a quarter for
 100–150 m. Raising `near_side_by_side_max_m` to 150 m would add that quarter at about 85 m
 precision.
 
@@ -604,36 +618,9 @@ so state DOT milepost data would be needed); typed coordinates (can be switched 
 TIGER ranges are attached to OSM streets. Number evidence is best where OSM has building
 addresses (Berkeley, San Jose) and relies on TIGER elsewhere.
 
-# Future directions {#sec-future}
-
-**Datasets without one city.** The search area is already a setting, and its boundary is
-looked up automatically, so the step to records that each carry their own city is small:
-group the records by city and state, build (and cache) one street index per city, and run
-the same matching. A national dataset touching 1,000 cities would build its indexes once
-(5 to 40 seconds per city with TIGER data, so one to two hours on this machine), after
-which each re-run is as fast as the single-city case.
-Records with only a ZIP code can use a box around the ZIP's centre; records with no place
-at all can only be matched where the street and house number are unique state-wide, so
-expect low match rates and keep the uniqueness check strict. The police-department case
-stays the fast special case of one area.
-
-**A service for other researchers.** Two routes, not exclusive:
-
-* *A package that runs anywhere.* A Docker Compose file with Nominatim (one state is
-  enough for most studies, about 30 GB instead of 350 GB), TIGER and `nomgeo`. Police
-  records often contain victims' home addresses, and many IRBs do not allow sending them to
-  a third-party service, so self-hosting matters.
-* *A hosted API* with the same output columns for those who can share data: a batch upload
-  endpoint, a no-logging policy, rate limits, and the data and code version in every
-  response for reproducibility (`summary.json` already records them).
-
-**Measuring accuracy.** Several cities publish incident coordinates next to their block
-addresses. Geocoding those addresses and comparing with the published points would give a
-free, public benchmark of precision by match type, and would let users of the service
-check their own settings.
-
-**Keeping data current.** The Nominatim database was imported in May 2025 and can be
-updated with `nominatim replication`; the caches follow the data version automatically.
+**One area per dataset.** Each dataset is matched within one search area. For records from
+several cities, make one dataset per city (split the input by city and state); each city's
+street index is built once and then cached.
 
 # Files {#sec-files}
 
@@ -646,7 +633,38 @@ updated with `nominatim replication`; the caches follow the data version automat
 | `nomgeo/locate.py` | numbers, intersections, street-only, ambiguity |
 | `nomgeo/nominatim.py` | named-place search with validation |
 | `nomgeo/area.py`, `nomgeo/cache.py` | the search area and city boundary; the caches |
-| `nomgeo/pipeline.py`, `nomgeo/cli.py` | batch run, outputs, `run` / `explain` / `compare` / `benchmark` / `report` |
+| `nomgeo/pipeline.py`, `nomgeo/cli.py` | batch run, outputs, `run` / `explain` / `benchmark` / `report` |
 | `nomgeo/report.py`, `nomgeo/benchmark.py` | the tables on this page; run-time measurement |
 | `configs/` | defaults, one file per dataset, rule files |
 | `tests/` | unit tests and regression cases |
+| `legacy/` | the earlier two-pass scripts (@sec-changelog) |
+
+# Changelog {#sec-changelog}
+
+## 0.1.0 (2026-10-24)
+
+First release of `nomgeo`. It replaces the two-pass scripts `geocode.py` and
+`geocode_pass2.py`, which are kept in `legacy/` with their
+[documentation](https://hungkitwchiu.github.io/doc.geocode.html); their last version is
+tagged `two-pass-final`.
+
+For users of the two-pass scripts:
+
+* Address files are used as before. The city-specific rows of `name_cleanup_rules.csv` and
+  the boxes of `city_viewboxes.csv` moved to `configs/rules/<city>.csv` and
+  `configs/<city>.yaml`; generic abbreviations are handled in code. The Saint Paul rule
+  `STRYKER → Saint Ryker` was dropped (the street is Stryker Avenue).
+* The separate `osm_raw` (osm2pgsql) database is no longer needed.
+* The output columns are new (@sec-output).
+* Results from the two-pass scripts should be re-checked before use. In samples of 300
+  matches per city, 52–82% were not placed at the address but at the centre of one
+  arbitrary piece of the named street (Nominatim's answer when it does not know a house
+  number), up to 4 km away in Berkeley. Also: the "false intersection" buffer of `500` was
+  applied to longitude/latitude, i.e. 500 degrees, so it had no distance limit; street names
+  were matched as substrings (`7th St` matched 27th St, and Lincoln's lettered streets almost
+  anything); only the first street of an intersection was limited to the city's box; empty
+  or number-only records returned the city centre; and cleanup rules applied to every city
+  (`A → Avenue` broke Lincoln's lettered streets). With the old output files listed under
+  `legacy:` in a dataset file, `python -m nomgeo compare <config>` writes
+  `outputs/<name>/compare_disagreements.csv`: the records the two place more than 250 m
+  apart, or that `nomgeo` leaves uncoded.
