@@ -8,8 +8,8 @@ city boundary) the index holds:
 * house-number ranges from OSM interpolation lines and US Census TIGER,
 
 all projected to a local metric plane so distances are in metres.  Building it
-takes a few seconds per city; it is pickled to the cache directory and reused
-until the database changes.
+takes 5-40 seconds per city (most of it checking the TIGER ranges); it is pickled
+to the cache directory and reused until the database or this code changes.
 """
 from __future__ import annotations
 

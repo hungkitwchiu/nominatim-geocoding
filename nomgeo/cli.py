@@ -1,4 +1,4 @@
-"""Command line: python -m nomgeo {run, explain, compare} ..."""
+"""Command line: python -m nomgeo {run, explain, compare, benchmark, report} ..."""
 from __future__ import annotations
 
 import argparse
@@ -167,6 +167,12 @@ def main(argv=None) -> None:
     c = sub.add_parser("compare", help="compare results with the legacy two-pass outputs")
     c.add_argument("config", nargs="+")
     c.set_defaults(func=cmd_compare)
+    b = sub.add_parser("benchmark", help="time a cold run, a re-run after a rule change and an "
+                                         "unchanged re-run (empties the caches first)")
+    b.add_argument("config", nargs="+")
+    b.add_argument("--jobs", type=int, default=4, help="worker processes (default 4)")
+    b.set_defaults(func=lambda a: __import__("nomgeo.benchmark", fromlist=["benchmark"]).benchmark(
+        _datasets(a.config), a.jobs))
     g = sub.add_parser("report", help="write the documentation tables (docs/_generated)")
     g.add_argument("config", nargs="+")
     g.add_argument("--out", default=str(PROJECT_DIR / "docs" / "_generated"))

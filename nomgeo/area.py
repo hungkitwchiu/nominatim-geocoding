@@ -9,7 +9,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
+import os
 import pickle
+import re
 from pathlib import Path
 
 import requests
@@ -18,6 +20,7 @@ from . import __version__
 from .streets import AreaIndex
 
 LOG = logging.getLogger(__name__)
+AREAS_KEPT = 3          # cached street indexes kept per dataset
 
 STATE_NAMES = {
     "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
@@ -85,6 +88,10 @@ def load_area(conn, ds, data_version: str, use_cache: bool = True) -> tuple[Area
     if use_cache and path.exists():
         with open(path, "rb") as fh:
             index = pickle.load(fh)
+        try:
+            os.utime(path)                # marks it as recently used for _prune_areas
+        except OSError:
+            pass
         info["cache"] = "hit"
     else:
         index = AreaIndex.build(conn, bbox, core_wkb, data_version)
@@ -92,6 +99,7 @@ def load_area(conn, ds, data_version: str, use_cache: bool = True) -> tuple[Area
         with open(path, "wb") as fh:
             pickle.dump(index, fh, protocol=pickle.HIGHEST_PROTOCOL)
         info["cache"] = "built"
+        _prune_areas(path.parent, ds.name)
     info.update(segments=len(index.seg_place), streets=sum(1 for e in index.entries.values() if not e.is_ref),
                 address_points=sum(len(v) for v in index.points.values()),
                 number_ranges=sum(len(v) for v in index.ranges.values()),
@@ -99,6 +107,17 @@ def load_area(conn, ds, data_version: str, use_cache: bool = True) -> tuple[Area
                 dropped_points=index.dropped_points,
                 dropped_tiger_ranges=getattr(index, "dropped_tiger", 0))
     return index, info
+
+
+def _prune_areas(folder: Path, name: str, keep: int = AREAS_KEPT) -> None:
+    """Delete all but the `keep` most recently used cached indexes of a dataset (each code or
+    data change leaves one behind, 5-50 MB per city)."""
+    mine = [p for p in folder.glob("*.pkl") if re.fullmatch(rf"{re.escape(name)}-[0-9a-f]{{16}}\.pkl", p.name)]
+    for p in sorted(mine, key=lambda p: p.stat().st_mtime, reverse=True)[keep:]:
+        try:
+            p.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _index_code_hash() -> str:

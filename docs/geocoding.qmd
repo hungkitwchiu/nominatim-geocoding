@@ -30,9 +30,10 @@ The design follows four rules.
 3. **Every result says what it is:** a match type (house, block, intersection, ...), an
    estimated precision in metres, the street names that were matched, and which
    relaxations (typo, missing direction, ...) were needed.
-4. **Fast and repeatable.** The same input, settings and data always give the same result;
-   about 250,000 records from eight cities take about two minutes, and an unchanged
-   re-run is answered from a cache in seconds.
+4. **Fast and repeatable.** The same input, settings and data always give the same result.
+   About 250,000 records from eight cities take under four minutes from scratch, about a
+   minute after a rule change, and ten seconds when nothing changed (the old scripts took
+   over nine hours for seven of them).
 
 ::: {.callout-note appearance="simple"}
 Software used: Ubuntu 24.04, PostgreSQL 17.5 with PostGIS 3.5, Nominatim 5.1.0, Python 3.12,
@@ -85,15 +86,18 @@ where OSM has none (see the [Nominatim TIGER guide](https://nominatim.org/releas
 
 ``` bash
 cd /srv/nominatim/nominatim-project            # the Nominatim project directory
+psql -d nominatim -c 'ANALYZE;'                # planner statistics, see the tip above
 wget https://nominatim.org/data/tiger2025-nominatim-preprocessed.csv.tar.gz   # 1.9 GB
 nominatim add-data --tiger-data tiger2025-nominatim-preprocessed.csv.tar.gz --threads 4
+psql -d nominatim -c 'ANALYZE location_property_tiger;'
 echo NOMINATIM_USE_US_TIGER_DATA=yes >> .env
 nominatim refresh --functions
 sudo systemctl restart nominatim
 ```
 
-The import took about five hours on the machine above (its single reader process is the
-bottleneck) and adds roughly 10 GB to the database.
+On the machine above the import took 5 hours for the whole country (34 million ranges, at
+about 1,900 per second) and added 8.6 GB to the database. `nomgeo` reads the new table
+directly, and its caches notice the change by themselves.
 
 ::: {.callout-note appearance="simple"}
 The earlier scripts needed a second, 366 GB `osm_raw` database (an osm2pgsql import) for
@@ -185,8 +189,9 @@ flowchart TD
 Each dataset has a **core** (the city boundary, looked up in Nominatim) and an **outer
 box** (the `bbox` in the dataset file, or the boundary's box plus `buffer_km`). All streets
 in the outer box are loaded into memory once: for San Jose that is 57,000 street pieces,
-20,000 distinct names and 396,000 OSM address points, read in about 5 seconds and then
-cached. Matches outside the core are kept but flagged `outside_city`. Three rules keep them
+20,000 distinct names, 395,000 OSM address points and 91,000 TIGER ranges. Building this
+index takes about 40 seconds, most of it checking the TIGER ranges (below); it is then
+cached, and loading it again takes about a second. Matches outside the core are kept but flagged `outside_city`. Three rules keep them
 from displacing the city's own streets:
 
 * when a record fits a place inside and a place outside the city, the place inside wins
@@ -301,7 +306,7 @@ The evidence is checked before it is used:
   (within 60 m and at least 10 m closer than any other street), not a corner lot between two.
 * A TIGER range counts only if at least half of it runs within 30 m of a street with the
   same name as the one Nominatim attached it to; Nominatim falls back to the nearest road
-  when names differ (0.8% of Berkeley's ranges fail this check).
+  when names differ (0.8% of the ranges fail this check in Berkeley, 5.6% in Saint Paul).
 * Evidence more than 150 m apart is treated as separate places. Long streets that cross town
   lines often restart their numbering: `0 MASSACHUSETTS AVE` has a 0–99 block in Boston,
   Cambridge and Arlington, and the one inside the city wins. Evidence for the same street
@@ -485,7 +490,7 @@ Three caches, all under `cache/`, each invalidated automatically:
 | Cache | Holds | Reused until |
 |---|---|---|
 | `areas/*.pkl` | the street index of an area (streets, address points, number ranges) | the database data or the indexing code changes |
-| `results.sqlite` | the final result of every record | the record, any setting or rule, the code, or the data changes |
+| `results.sqlite` | the final result of every record | the record, any setting or rule, the matching code, or the data changes |
 | `nominatim.sqlite` | raw Nominatim answers (boundaries, named places) | the data changes |
 
 The data version combines the OSM import date with the identity of the TIGER table, so a
@@ -495,7 +500,18 @@ run instead of silently matching without the city. Records that hit an error (a 
 Nominatim outage) are not cached and are retried on the next run. `--no-cache` ignores the
 caches.
 
+The caches clean up after themselves: per dataset they keep the street indexes and the
+results of the three most recently used versions (so going back to the previous rules is
+still instant) and delete older ones. Deleting `cache/` is always safe; it is rebuilt on the
+next run.
+
+Run times for all eight cities, measured with `python -m nomgeo benchmark configs/*.yaml
+--jobs 5` (which empties the caches first) on the machine described at the top:
+
 {{< include _generated/timing.md >}}
+
+A cold run is mostly spent building the street indexes, which happens again only when the
+data or the indexing code changes.
 
 Where the time went before: the second pass ran the expensive fuzzy-name search for every
 address before trying anything simpler, filtered names with an expression the trigram
@@ -510,6 +526,26 @@ calls Nominatim for named places.
 The old match rates count the false positives described in @sec-why, so the two columns
 are not comparable as quality. Saint Paul's old output files are from an interrupted run
 and are left out of the comparisons.
+
+**What the TIGER ranges added.** The same code, run just before and just after the TIGER
+import (2026-10-24):
+
+| City | Records | Matched, OSM only | Matched, with TIGER | Gained | Matches using TIGER numbers |
+|---|---:|---:|---:|---:|---:|
+| Berkeley | 3,996 | 3,774 (94.4%) | 3,797 (95.0%) | +23 | 99 |
+| Cambridge | 3,519 | 2,959 (84.1%) | 2,995 (85.1%) | +36 | 67 |
+| Lincoln | 40,568 | 25,215 (62.2%) | 34,474 (85.0%) | +9,259 | 11,883 |
+| Louisville | 43,919 | 37,348 (85.0%) | 37,951 (86.4%) | +603 | 1,059 |
+| Norfolk | 12,395 | 10,734 (86.6%) | 11,198 (90.3%) | +464 | 903 |
+| Saint Paul | 43,567 | 25,582 (58.7%) | 40,759 (93.6%) | +15,177 | 25,210 |
+| San Jose | 67,470 | 53,382 (79.1%) | 54,428 (80.7%) | +1,046 | 2,040 |
+| Virginia Beach | 33,763 | 28,859 (85.5%) | 29,438 (87.2%) | +579 | 936 |
+| **All** | **249,197** | **187,853 (75.4%)** | **215,040 (86.3%)** | **+27,187** | **42,197** |
+
+TIGER matters most where OSM has few building addresses: the search areas of Lincoln and
+Saint Paul have 37,000 and 58,000 OSM address points, against 320,000 to 395,000 around
+Louisville, Norfolk, San Jose and Virginia Beach. There it lifted the match rate by 23 and
+35 percentage points; elsewhere by 0.6 to 3.7.
 
 **What the matches are.** Records by match type:
 
@@ -573,8 +609,9 @@ addresses (Berkeley, San Jose) and relies on TIGER elsewhere.
 **Datasets without one city.** The search area is already a setting, and its boundary is
 looked up automatically, so the step to records that each carry their own city is small:
 group the records by city and state, build (and cache) one street index per city, and run
-the same matching. A national dataset touching 1,000 cities would build its indexes once,
-in about an hour, after which each re-run is as fast as the single-city case.
+the same matching. A national dataset touching 1,000 cities would build its indexes once
+(5 to 40 seconds per city with TIGER data, so one to two hours on this machine), after
+which each re-run is as fast as the single-city case.
 Records with only a ZIP code can use a box around the ZIP's centre; records with no place
 at all can only be matched where the street and house number are unique state-wide, so
 expect low match rates and keep the uniqueness check strict. The police-department case
@@ -608,6 +645,8 @@ updated with `nominatim replication`; the caches follow the data version automat
 | `nomgeo/resolve.py` | street lookup tiers and penalties |
 | `nomgeo/locate.py` | numbers, intersections, street-only, ambiguity |
 | `nomgeo/nominatim.py` | named-place search with validation |
-| `nomgeo/pipeline.py`, `nomgeo/cli.py` | batch run, outputs, `run` / `explain` / `compare` / `report` |
+| `nomgeo/area.py`, `nomgeo/cache.py` | the search area and city boundary; the caches |
+| `nomgeo/pipeline.py`, `nomgeo/cli.py` | batch run, outputs, `run` / `explain` / `compare` / `benchmark` / `report` |
+| `nomgeo/report.py`, `nomgeo/benchmark.py` | the tables on this page; run-time measurement |
 | `configs/` | defaults, one file per dataset, rule files |
 | `tests/` | unit tests and regression cases |

@@ -16,9 +16,9 @@ from .config import PROJECT_DIR, load_dataset
 from .pipeline import reason_group
 
 TYPES = ["house", "interpolated", "block", "between", "intersection", "near_intersection", "street", "poi"]
-# Run times of the two-pass scripts, as published on the project website (2025).
-LEGACY_TIME = {"berkeley": "2m04s", "cambridge": "5m02s", "louisville": "1h26m", "norfolk": "10m27s",
-               "san_jose": "5h41m", "saint_paul": "37m30s", "virginia_beach": "1h24m"}
+# Run times of the two-pass scripts in seconds, as published on the project website (2025).
+LEGACY_SECONDS = {"berkeley": 124, "cambridge": 302, "louisville": 5199, "norfolk": 627,
+                  "san_jose": 20491, "saint_paul": 2250, "virginia_beach": 5072}
 LABEL = {"berkeley": "Berkeley", "cambridge": "Cambridge", "lincoln": "Lincoln", "louisville": "Louisville",
          "norfolk": "Norfolk", "san_jose": "San Jose", "saint_paul": "Saint Paul",
          "virginia_beach": "Virginia Beach"}
@@ -35,6 +35,32 @@ def _pct(a, b):
     return f"{100 * a / b:.1f}%" if b else "-"
 
 
+def _duration(seconds: float) -> str:
+    if seconds < 10:
+        return f"{seconds:.1f} s"
+    s = round(seconds)
+    h, rest = divmod(s, 3600)
+    m, s = divmod(rest, 60)
+    if h:
+        return f"{h} h {m} min"
+    return (f"{m} min {s} s" if s else f"{m} min") if m else f"{s} s"
+
+
+def _timing_table(path: Path, names: list[str]) -> str:
+    """Per-city run times from `nomgeo benchmark` next to the two-pass scripts' times."""
+    if not path.exists():
+        return "*Run `python -m nomgeo benchmark configs/*.yaml` to fill this table.*\n"
+    b = json.loads(path.read_text())
+    ph = b["phases"]
+    rows = [[LABEL.get(n, n), _duration(LEGACY_SECONDS[n]) if n in LEGACY_SECONDS else "-"]
+            + [_duration(ph[p]["datasets"][n]) for p in ("cold", "rule_change", "unchanged")]
+            for n in names if n in ph["cold"]["datasets"]]
+    legacy = [LEGACY_SECONDS[n] for n in names if n in LEGACY_SECONDS]
+    rows.append([f"**All ({b['records']:,} records)**", f"**{_duration(sum(legacy))}** ({len(legacy)} cities)"]
+                + [f"**{_duration(ph[p]['seconds'])}**" for p in ("cold", "rule_change", "unchanged")])
+    return _table(["City", "Two-pass scripts", "nomgeo, cold", "after a rule change", "nothing changed"], rows)
+
+
 def build(configs: list[str], out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     datasets = [load_dataset(c) for c in configs]
@@ -44,7 +70,6 @@ def build(configs: list[str], out_dir: Path) -> None:
     reasons_all = Counter()
     for ds in datasets:
         d = Path(ds.output_dir) / ds.name
-        summary = json.loads((d / "summary.json").read_text())
         rows = list(csv.DictReader(open(d / "results.csv", newline="", encoding="utf-8")))
         n = len(rows)
         matched = [r for r in rows if r["status"] == "matched"]
@@ -52,8 +77,7 @@ def build(configs: list[str], out_dir: Path) -> None:
         name = LABEL.get(ds.name, ds.name)
         legacy_ok = ds.name != "saint_paul"          # its legacy files are from an interrupted run
         old_rate = _pct(len(old_m), n) if legacy_ok and old_m else "-"
-        res_rows.append([name, f"{n:,}", f"{len(matched):,}", _pct(len(matched), n), old_rate,
-                         LEGACY_TIME.get(ds.name, "-"), f"{summary['seconds_total']:.0f} s"])
+        res_rows.append([name, f"{n:,}", f"{len(matched):,}", _pct(len(matched), n), old_rate])
         tot["n"] += n
         tot["m"] += len(matched)
 
@@ -105,8 +129,10 @@ def build(configs: list[str], out_dir: Path) -> None:
                               f"{near_prec[len(near_prec) // 2]:.0f}"])
 
     (out_dir / "results.md").write_text(_table(
-        ["City", "Unique records", "Matched", "Match rate", "Legacy match rate", "Legacy run time", "New run time"],
-        res_rows + [["**All**", f"**{tot['n']:,}**", f"**{tot['m']:,}**", f"**{_pct(tot['m'], tot['n'])}**", "", "", ""]]))
+        ["City", "Unique records", "Matched", "Match rate", "Legacy match rate"],
+        res_rows + [["**All**", f"**{tot['n']:,}**", f"**{tot['m']:,}**", f"**{_pct(tot['m'], tot['n'])}**", ""]]))
+    (out_dir / "timing.md").write_text(_timing_table(Path(datasets[0].output_dir) / "benchmark.json",
+                                                     [ds.name for ds in datasets]))
     (out_dir / "match_types.md").write_text(_table(["City"] + TYPES, type_rows))
     (out_dir / "precision.md").write_text(_table(["City"] + TYPES, prec_rows))
     groups = [g for g, _ in reasons_all.most_common()]

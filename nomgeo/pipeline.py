@@ -37,10 +37,15 @@ OUTPUT_FIELDS = ["address", "status", "match_type", "lat", "lon", "precision_m",
 PLACE_TYPES = {"PARK", "PLZ", "SQ", "CTR", "MALL", "STA", "CMN", "CMNS", "GRN", "CRSE", "CLB"}
 
 
+# Modules that cannot change a result; editing them keeps the cached results.
+_NOT_FINGERPRINTED = {"__main__.py", "benchmark.py", "cli.py", "report.py"}
+
+
 def code_fingerprint() -> str:
     h = hashlib.sha1(__version__.encode())
     for f in sorted(Path(__file__).parent.glob("*.py")):
-        h.update(f.read_bytes())
+        if f.name not in _NOT_FINGERPRINTED:
+            h.update(f.read_bytes())
     return h.hexdigest()[:12]
 
 
@@ -51,6 +56,17 @@ def detect_numbering(records: list[Record]) -> str:
         return "exact"
     share = sum(1 for n in nums if n % 100 in (0, 50)) / len(nums)
     return "hundred_block" if share >= 0.8 else "exact"
+
+
+def _auto_numbering(addresses: list[str], ds: Dataset, cache: KVCache, group: str, use_cache: bool) -> str:
+    """detect_numbering over the whole input. Parsing every record takes seconds, so the
+    answer is cached with the results; it depends only on the input and the group."""
+    key = "numbering:" + hashlib.sha1("\x1e".join(addresses).encode() + group.encode()).hexdigest()
+    mode = cache.get(key) if use_cache else None
+    if mode is None:
+        mode = detect_numbering([parse_record(a, ds) for a in addresses])
+        cache.put(key, mode, group)
+    return mode
 
 
 # --------------------------------------------------------------------------- one record
@@ -293,14 +309,18 @@ def run(ds: Dataset, jobs: int = 4, use_cache: bool = True, limit: int | None = 
     conn.close()
     t_index = time.time() - t0
 
+    # Cached results are grouped by dataset and everything a result depends on apart from
+    # the record itself. The area key covers the box, the city boundary, the data and the
+    # index code, so a run whose boundary lookup came out differently never shares cached
+    # results with this one.
+    group = f"{ds.name}:" + hashlib.sha1(
+        f"{ds.config_hash}|{code_fingerprint()}|{dv}|{area_info['key']}".encode()).hexdigest()[:16]
+    rcache = KVCache(Path(ds.cache_dir) / "results.sqlite")
     mode = ds.numbering
     if mode == "auto":
-        mode = detect_numbering([parse_record(a, ds) for a in addresses])
-    # The area key covers the box, the city boundary, the data and the index code, so a run
-    # whose boundary lookup came out differently never shares cached results with this one.
-    fp = f"{ds.config_hash}|{code_fingerprint()}|{dv}|{mode}|{area_info['key']}"
+        mode = _auto_numbering(addresses, ds, rcache, group, use_cache)
+    fp = f"{group}|{mode}"
     keys = {a: hashlib.sha1(f"{a}\x1f{fp}".encode()).hexdigest() for a in addresses}
-    rcache = KVCache(Path(ds.cache_dir) / "results.sqlite")
     cached = rcache.get_many(list(keys.values())) if use_cache else {}
     results = {a: cached[k] for a, k in keys.items() if k in cached}
     todo = [a for a in addresses if a not in results]
@@ -325,8 +345,11 @@ def run(ds: Dataset, jobs: int = 4, use_cache: bool = True, limit: int | None = 
     for r in new_rows:
         results[r["address"]] = r
     # Errors (a crash, a Nominatim outage) are retried next time rather than cached.
-    rcache.put_many((keys[r["address"]], r) for r in new_rows
-                    if not re.search(r"internal error|nominatim error", r.get("reason") or ""))
+    rcache.put_many(((keys[r["address"]], r) for r in new_rows
+                     if not re.search(r"internal error|nominatim error", r.get("reason") or "")), group)
+    # Keep this dataset's three most recently used groups: going back to the previous rules
+    # stays instant, and the cache does not grow with every change.
+    rcache.keep_groups(f"{ds.name}:", group)
     t_geo = time.time() - t1
 
     rows = [results[a] for a in addresses]
@@ -343,6 +366,8 @@ def reason_group(reason: str) -> str:
     """Collapse specific reasons ('street not found: OAK ST') into report categories."""
     r = reason or ""
     for pat, label in [(r"same-named street outside the city", "number only on a same-named street outside the city"),
+                       (r"^corner not found", "'between' record: a corner not found"),
+                       (r"^named place .* from the cross street", "named place too far from the cross street"),
                        (r"^street not found", "street not found in area"),
                        (r"^house number not found", "house number not found on street"),
                        (r"^house number \d+ is outside", "number outside the street's known numbers"),
