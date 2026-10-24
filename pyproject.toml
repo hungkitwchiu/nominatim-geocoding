@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nomgeo"
+version = "0.1.0"
+description = "Reference-driven batch geocoding of US police records on a self-hosted Nominatim database"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "psycopg[binary]>=3.1",
+    "pyyaml>=6.0",
+    "rapidfuzz>=3.0",
+    "shapely>=2.0",
+    "numpy>=1.24",
+    "tqdm>=4.60",
+]
+
+[project.scripts]
+nomgeo = "nomgeo.cli:main"
+
+[tool.setuptools]
+packages = ["nomgeo"]

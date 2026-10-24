@@ -1,0 +1,11 @@
+name: cambridge
+input: CAM_address.csv
+area:
+  city: Cambridge
+  state: MA
+  bbox: [-71.20, 42.45, -71.02, 42.30]          # left, top, right, bottom (from city_viewboxes.csv)
+rules: configs/rules/cambridge.csv
+
+legacy:
+  matches: CAM_geocoded_matches.csv
+  unmatched: CAM_geocoded_unmatched.csv

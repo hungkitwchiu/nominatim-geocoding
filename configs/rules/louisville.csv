@@ -1,0 +1,4 @@
+match,replace,notes
+# Carried over from name_cleanup_rules.csv (Louisville rows). "DR W J HODGE" is handled in code.
+New La Grange,New Lagrange,Louisville name/typo
+DR J HODGE ST W,DR W J HODGE ST,Louisville (RMS moved the W initial to the end)

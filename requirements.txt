@@ -1,0 +1,8 @@
+# Python packages for nomgeo (tested with the versions in parentheses).
+requests>=2.31          # (2.34.2) Nominatim HTTP API, city boundary and named-place lookups
+psycopg[binary]>=3.1    # (3.3.6)  reading Nominatim's tables
+pyyaml>=6.0             # (6.0.3)  dataset configuration files
+rapidfuzz>=3.0          # (3.14.6) typo-tolerant street name matching
+shapely>=2.0            # (2.2.0)  street geometry: crossings, distances, interpolation
+numpy>=1.24             # (2.5.4)
+tqdm>=4.60              # (4.70.1) progress bars

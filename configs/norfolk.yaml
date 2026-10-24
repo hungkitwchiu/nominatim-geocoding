@@ -1,0 +1,11 @@
+name: norfolk
+input: NOR_address.csv
+area:
+  city: Norfolk
+  state: VA
+  bbox: [-76.43, 37.04, -75.86, 36.47]          # left, top, right, bottom (from city_viewboxes.csv)
+rules: configs/rules/norfolk.csv
+
+legacy:
+  matches: NOR_geocoded_matches.csv
+  unmatched: NOR_geocoded_unmatched.csv

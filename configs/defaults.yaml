@@ -1,0 +1,46 @@
+# Defaults shared by every dataset.  A dataset file (configs/<city>.yaml) can
+# override any key; nested keys are merged one by one.
+
+database:
+  host: localhost
+  port: 5432
+  dbname: nominatim
+  user: nominatim
+  password: nominatim        # override with the NOMGEO_DB_PASSWORD environment variable
+nominatim_url: http://localhost/nominatim
+cache_dir: cache
+output_dir: outputs
+
+# House numbers: "hundred_block" (1300 = the 1300-1399 block; 3550 = 3500-3599),
+# "exact" (real house numbers), or "auto" (decided from the data: >= 80 % x00/x50).
+numbering: auto
+
+area:
+  buffer_km: 3               # outer search box around the city boundary when no bbox is given
+
+parsing:
+  strip_after: []            # cut the street text at these strings (Lincoln uses ";" for notes)
+  truncation_length: null    # the RMS field width, if long values are cut off (San Jose: 30)
+  redacted_first_token: false   # first token had its last two characters replaced by "00"
+  single_letter_suffixes: false # "OLIVE L" = Olive Lane; off where streets are named by letters
+
+# What counts as a match.  These defaults target census block / block-group analysis.
+precision:
+  near_intersection_max_gap_m: 40   # two streets this close count as meeting
+  intersection_merge_m: 60          # crossing points closer than this are one junction
+  ambiguity_radius_m: 80            # candidate locations within this radius are one place
+  street_max_radius_m: 125          # street-only records: whole street within this radius
+  poi_max_radius_m: 150             # named places larger than this are not accepted
+  number_neighbor_max_gap: 20       # real house numbers: interpolate between neighbours this close
+  same_street_merge_m: 400          # evidence for one block on the same street (long blocks, interrupted streets)
+  max_precision_m: 250              # final gate: nothing vaguer than this is accepted
+  fuzzy_min_length: 5               # no typo tolerance for names shorter than this
+  max_penalty: 6                    # most relaxation allowed per street (see the documentation)
+
+# Record types to geocode when the match is unambiguous (decided 2026-10-23).
+accept:
+  street_only: true
+  poi: true
+  highway_interchange: false
+  coordinates_in_text: false
+  outside_core: true                # matches in the outer box but outside the city boundary

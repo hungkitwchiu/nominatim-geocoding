@@ -1,0 +1,12 @@
+name: berkeley
+input: BER_address.csv
+area:
+  city: Berkeley
+  state: CA
+  bbox: [-122.34, 37.92, -122.20, 37.84]          # left, top, right, bottom (from city_viewboxes.csv)
+rules: configs/rules/berkeley.csv
+parsing:
+  redacted_first_token: true
+legacy:
+  matches: BER_geocoded_matches.csv
+  unmatched: BER_geocoded_unmatched.csv

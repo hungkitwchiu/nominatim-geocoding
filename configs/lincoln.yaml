@@ -1,0 +1,15 @@
+name: lincoln
+input: LIN_address.csv
+area:
+  city: Lincoln
+  state: NE
+  bbox: [-96.87, 40.95, -96.54, 40.68]          # left, top, right, bottom (from city_viewboxes.csv)
+rules: configs/rules/lincoln.csv
+parsing:
+  strip_after: [";"]          # LPD appends notes after a semicolon
+  truncation_length: 32
+  between_hyphen: true        # "26TH & K-N ST" = 26th St between K St and N St
+  unreliable_types: [ST]      # LPD writes "ST" for avenues too ("HUNTINGTON ST")
+legacy:
+  matches: LIN_geocoded_matches.csv
+  unmatched: LIN_geocoded_unmatched.csv

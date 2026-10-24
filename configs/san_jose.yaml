@@ -1,0 +1,13 @@
+name: san_jose
+input: SJ_address.csv
+area:
+  city: San Jose
+  state: CA
+  bbox: [-122.15, 37.50, -121.55, 37.10]          # left, top, right, bottom (from city_viewboxes.csv)
+rules: configs/rules/san_jose.csv
+parsing:
+  truncation_length: 30
+  single_letter_suffixes: true
+legacy:
+  matches: SJ_geocoded_matches.csv
+  unmatched: SJ_geocoded_unmatched.csv

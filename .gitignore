@@ -1,0 +1,20 @@
+# --- Data: police address files and geocoding outputs (keep out of version control) ---
+*_address.csv
+*_geocoded_matches.csv
+*_geocoded_unmatched.csv
+data/
+outputs/
+
+# --- Local state ---
+.venv/
+cache/
+__pycache__/
+*.pyc
+.Rhistory
+.Rproj.user/
+
+# --- Rendered documentation ---
+docs/_site/
+docs/*_files/
+docs/*.html
+docs/.quarto/

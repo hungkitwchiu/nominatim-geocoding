@@ -1,0 +1,12 @@
+match,replace,notes
+# Carried over from name_cleanup_rules.csv (Virginia Beach rows). "CY" (Court) is handled in code.
+After,,Virginia Beach
+Before,,Virginia Beach
+BOARDWALK BW,BOARDWALK,Virginia Beach name
+OCEANFRONT,OCEAN FRONT,Virginia Beach name
+SC,SHOPPING CENTER,Virginia Beach (shopping center)
+VBB,VIRGINIA BEACH BOULEVARD,Virginia Beach
+th Half st, 1/2 street,Virginia Beach name/no-boundary
+st half st, 1/2 street,Virginia Beach name/no-boundary
+nd half st, 1/2 street,Virginia Beach name/no-boundary
+rd half st, 1/2 street,Virginia Beach name/no-boundary

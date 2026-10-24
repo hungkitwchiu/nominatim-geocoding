@@ -1,0 +1,9 @@
+match,replace,notes
+# Lincoln: notes after ";" are cut in the dataset config (parsing.strip_after).
+# NE-2 inside the city is mapped in OSM as Nebraska Parkway (address points 1400-2225); the
+# freeway section outside town is 'Nebraska Highway 2'. Assumption: LPD's NE-2 addresses mean the parkway.
+NEBRASKA 2 HWY,NEBRASKA PKWY,Lincoln NE-2
+NEBR HWY 2,NEBRASKA PKWY,Lincoln NE-2
+NEBR HWY,NEBRASKA PKWY,Lincoln NE-2
+0 ST,O ST,Lincoln (zero typed for the letter O)
+OST ST,O ST,Lincoln

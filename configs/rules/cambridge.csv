@@ -1,0 +1,9 @@
+match,replace,notes
+# Carried over from name_cleanup_rules.csv (Cambridge rows).
+Clement Morgan,Clement G. Morgan,Cambridge name
+Jfk,John F. Kennedy,Cambridge name
+Linsky,Linskey,Cambridge name
+Mbta,,Cambridge (transit agency name in place descriptions)
+Elm Street North,Elm Street,Cambridge name/typo
+Cambridge Cemetery,Cambridge Cemetry Rd,Cambridge (OSM spells it Cemetry)
+(0 )?Vail Ct,139 Bishop Allen Drive,Cambridge private court not in OSM

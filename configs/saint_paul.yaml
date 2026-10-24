@@ -1,0 +1,11 @@
+name: saint_paul
+input: STP_address.csv
+area:
+  city: Saint Paul
+  state: MN
+  bbox: [-93.24, 45.01, -92.97, 44.85]          # left, top, right, bottom (from city_viewboxes.csv)
+rules: configs/rules/saint_paul.csv
+
+legacy:
+  matches: STP_geocoded_matches.csv
+  unmatched: STP_geocoded_unmatched.csv

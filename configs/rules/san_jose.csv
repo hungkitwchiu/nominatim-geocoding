@@ -1,0 +1,11 @@
+match,replace,notes
+# Carried over from name_cleanup_rules.csv (San Jose rows). Highway/ramp records, AT, RP and
+# DEAD END are handled in code; truncated names are also matched by prefix (truncation_length).
+MHP,MOBILE HOME PARK,San Jose
+NEW AUTUMN ST,N AUTUMN ST,San Jose name/typo
+LOS GATOS-ALMADE,LOS GATOS ALMADEN,San Jose truncated
+LOS CERRITO,LOS CERRITOS,San Jose truncated
+ALMENDRO,ALMENDROS,San Jose truncated
+CHEMIN DE RIVIER,CHEMIN DE RIVIERE,San Jose truncated
+EL PASEO DE SARATO,EL PASEO DE SARATOGA,San Jose truncated
+AIRES LN,ARIES LN,San Jose typo

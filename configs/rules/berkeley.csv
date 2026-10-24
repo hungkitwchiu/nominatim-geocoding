@@ -1,0 +1,36 @@
+match,replace,notes
+# Carried over from name_cleanup_rules.csv (Berkeley rows). Generic abbreviations are handled in code.
+JNR,JR,Berkeley name
+M L KING JR,MARTIN LUTHER KING JR,Berkeley name
+MARTING LUTHER KING,MARTIN LUTHER KING,Berkeley typo
+telegrapgh,TELEGRAPH,Berkeley typo
+SPINANNAKER,SPINNAKER,Berkeley typo
+DE00 END,DEAD END,Berkeley redaction
+M00 KING JR,MARTIN LUTHER KING JR,Berkeley redaction
+M00 JR,MARTIN LUTHER KING JR,Berkeley redaction
+B00,BAY,Berkeley redaction
+S00 PABLO,SAN PABLO,Berkeley redaction
+MCG00,MCGEE,Berkeley redaction
+RO00,ROSE,Berkeley redaction
+WE00 FRONTAGE,WEST FRONTAGE,Berkeley redaction
+SAN00 FE,SANTA FE,Berkeley redaction
+SAN00 BARBARA,SANTA BARBARA,Berkeley redaction
+ASH00,ASHBY,Berkeley redaction
+BLA00,BLAKE,Berkeley redaction
+DA00,DANA,Berkeley redaction
+DO00,DOHR,Berkeley redaction
+DER00,DERBY,Berkeley redaction
+CED00,CEDAR,Berkeley redaction
+TEN00,TENTH,Berkeley redaction
+NIN00,NINTH,Berkeley redaction
+HAS00,HASTE,Berkeley redaction
+PA00,PAGE,Berkeley redaction
+ACT00,ACTON,Berkeley redaction
+ET00,ETON,Berkeley redaction
+DOV00,DOVER,Berkeley redaction
+MAR00,MARIN,Berkeley redaction
+HEN00,HENRY,Berkeley redaction
+WA00,WARD,Berkeley redaction
+CIV00,CIVIC,Berkeley redaction
+ESS00,ESSEX,Berkeley redaction
+KAI00,KAINS,Berkeley redaction

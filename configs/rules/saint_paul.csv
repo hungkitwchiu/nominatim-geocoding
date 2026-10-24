@@ -1,0 +1,21 @@
+match,replace,notes
+# Carried over from name_cleanup_rules.csv (Saint Paul rows). Numbered streets ("3 ST"), "OXFORD ST N"
+# and "CURTICE ST E" are handled in code. Not carried over: STRYKER -> Saint Ryker (OSM has Stryker Avenue).
+STCLAIR,SAINT CLAIR,Saint Paul name
+STALBANS,SAINT ALBANS,Saint Paul name
+STANTHONY,SAINT ANTHONY,Saint Paul name
+STPAUL,SAINT PAUL,Saint Paul name
+STPETER,SAINT PETER,Saint Paul name
+DRJUSTUSOHAGE,DOCTOR JUSTUS OHAGE,Saint Paul name/typo
+PTDOUGLAS,POINT DOUGLAS,Saint Paul name/typo
+MISSISSIPPIRIVER,MISSISSIPPI RIVER,Saint Paul name/typo
+PIERCEBUTLER RD,PIERCE BUTLER ROUTE,Saint Paul name/typo
+MTAIRY,MOUNT AIRY,Saint Paul name/typo
+MTCURVE,MOUNT CURVE,Saint Paul name/typo
+MTIDA,MOUNT IDA,Saint Paul name/typo
+MTHOPE,MOUNT HOPE,Saint Paul name/typo
+LOWERAFTON,LOWER AFTON,Saint Paul name/typo
+LOWERSTDENNIS,LOWER SAINT DENNIS,Saint Paul squashed name
+UPPERSTDENNIS,UPPER SAINT DENNIS,Saint Paul squashed name
+OLDSIXTH,OLD SIXTH,Saint Paul squashed name
+MARTINLUTHERKING,MARTIN LUTHER KING JR,Saint Paul squashed name

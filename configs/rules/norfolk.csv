@@ -1,0 +1,5 @@
+match,replace,notes
+# Carried over from name_cleanup_rules.csv (Norfolk rows). "BLK" is removed in code.
+Nickoles,Nicholas,Norfolk name/typo
+VA BEACH,VIRGINIA BEACH,Norfolk abbreviation
+VA BCH,VIRGINIA BEACH,Norfolk abbreviation

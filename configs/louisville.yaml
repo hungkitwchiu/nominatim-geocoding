@@ -1,0 +1,11 @@
+name: louisville
+input: LOU_address.csv
+area:
+  city: Louisville
+  state: KY
+  bbox: [-86.08, 38.41, -85.27, 37.98]          # left, top, right, bottom (from city_viewboxes.csv)
+rules: configs/rules/louisville.csv
+
+legacy:
+  matches: LOU_geocoded_matches.csv
+  unmatched: LOU_geocoded_unmatched.csv

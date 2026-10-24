@@ -1,0 +1,11 @@
+name: virginia_beach
+input: VB_address.csv
+area:
+  city: Virginia Beach
+  state: VA
+  bbox: [-76.46, 37.00, -75.86, 36.47]          # left, top, right, bottom (from city_viewboxes.csv)
+rules: configs/rules/virginia_beach.csv
+
+legacy:
+  matches: VB_geocoded_matches.csv
+  unmatched: VB_geocoded_unmatched.csv
