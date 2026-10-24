@@ -30,8 +30,16 @@ from .resolve import resolve, resolve_typo
 
 LOG = logging.getLogger(__name__)
 
-OUTPUT_FIELDS = ["address", "status", "match_type", "lat", "lon", "precision_m", "matched", "source",
-                 "flags", "reason", "kind", "in_city", "penalty", "detail"]
+OUTPUT_FIELDS = ["address", "status", "match_type", "tier", "lat", "lon", "precision_m", "matched",
+                 "source", "flags", "reason", "kind", "in_city", "penalty", "detail"]
+# Confidence tiers.  A: the street(s) as written or after routine clean-up, and direct evidence.
+# B: a correction or inference that the evidence confirms, or a location near rather than at
+# the evidence.  C: nothing confirms the reading.
+TIER_B_FLAGS = {"typo_1", "type_changed", "redacted", "truncated", "trailing_text", "second_chance",
+                "alt_name", "route_number", "dominant_evidence", "block_of_exact_number",
+                "between_known_numbers", "offset_of_intersection"}
+TIER_C_FLAGS = {"typo_2", "bare_route_number", "number_not_found", "number_on_first_street",
+                "cross_street_ignored", "extra_street_ignored"}
 # Types that usually name a place rather than a street ("JEFFERSON PARK", "CENTRAL SQ"):
 # never swap them for a different street type.
 PLACE_TYPES = {"PARK", "PLZ", "SQ", "CTR", "MALL", "STA", "CMN", "CMNS", "GRN", "CRSE", "CLB"}
@@ -70,6 +78,16 @@ def _auto_numbering(addresses: list[str], ds: Dataset, cache: KVCache, group: st
 
 
 # --------------------------------------------------------------------------- one record
+def tier(match_type: str, flags) -> str:
+    """Confidence tier A, B or C of a match (see TIER_B_FLAGS)."""
+    flags = set(flags)
+    if match_type in ("street", "poi", "coordinates") or flags & TIER_C_FLAGS:
+        return "C"
+    if match_type in ("near_intersection", "between") or flags & TIER_B_FLAGS:
+        return "B"
+    return "A"
+
+
 def _row(raw: str, rec: Record, loc: Location | None, reason: str | None, index, extra=()) -> dict:
     row = {"address": raw, "kind": rec.kind}
     if loc is None:
@@ -80,7 +98,8 @@ def _row(raw: str, rec: Record, loc: Location | None, reason: str | None, index,
     flags = list(rec.flags) + list(loc.flags) + list(extra)
     if index.core is not None and not loc.in_core:
         flags.append("outside_city")
-    row.update(status="matched", match_type=loc.match_type, lat=round(lat, 7), lon=round(lon, 7),
+    row.update(status="matched", match_type=loc.match_type, tier=tier(loc.match_type, flags),
+               lat=round(lat, 7), lon=round(lon, 7),
                precision_m=round(loc.precision_m), matched=" & ".join(loc.names), source=loc.source,
                flags=";".join(dict.fromkeys(flags)), in_city=int(loc.in_core), penalty=loc.penalty,
                detail=loc.detail)
@@ -163,13 +182,17 @@ def geocode_record(raw: str, index, ds: Dataset, mode: str, client) -> dict:
         return _row(raw, rec, None, rec.note, index)
 
     loc, reason, extra = _attempt(rec, index, ds, mode, client)
-    if loc is None and rec.redacted_alternative:
-        # Berkeley "00 LOMA": not the 0-99 block of a Loma street, so try "LA LOMA" etc.
-        alt = parse_record(rec.redacted_alternative, ds, redacted_name=True)
+    if loc is None and rec.alternative:
+        # Berkeley's redaction reads two ways: "00 LOMA" is the 0-99 block of Loma or La Loma,
+        # "2100 CENTER" is 21st Center or house 2100 on Center Street.
+        alt = parse_record(raw, ds, reading=rec.alternative)
         if alt.kind in (ADDRESS, STREET, INTERSECTION):
-            loc2, _, extra2 = _attempt(alt, index, ds, mode, client)
+            loc2, reason2, extra2 = _attempt(alt, index, ds, mode, client)
             if loc2:
                 rec, loc, reason, extra = alt, loc2, None, extra2
+            elif reason and reason.startswith("street not found") and reason2 \
+                    and not reason2.startswith("street not found"):
+                reason = reason2           # the other reading got further
     if loc is not None and "offset_of_intersection" in rec.flags:
         # "on A, south of B": somewhere along A near the corner, not at it.
         loc = replace(loc, precision_m=max(loc.precision_m, 100.0))
@@ -190,12 +213,18 @@ def _single(rec, text, number, index, ds, mode, client):
             loc, reason = locate_number(cands, number, mode, index, ds)
         else:
             loc, reason = locate_street(cands, index, ds)
+        if loc:
+            return loc, None, ()
         # The street exists, so never swap it for a place that shares its name
         # ("500 BROADWAY" is not the Broadway subway stop, "400 GILMAN" not "924 Gilman").
-        return (loc, None, ()) if loc else (None, reason, ())
-    reason = f"street not found: {text}"
-    if not _poi_allowed(text, ds):
-        return None, reason, ()
+        # A place-like name that fits a street only with a word added or its type changed is a
+        # guess, though: "450 RYLAND PARK" is not on Ryland Park Drive, so the park is tried.
+        if not (_poi_allowed(text, ds) and all({"type_as_name", "type_changed"} & set(c.flags) for c in cands)):
+            return None, reason, ()
+    else:
+        reason = f"street not found: {text}"
+        if not _poi_allowed(text, ds):
+            return None, reason, ()
     poi, poi_reason = find_poi(text, index, ds, client)
     if poi:
         return poi, None, (("number_ignored",) if number is not None else ())
@@ -411,7 +440,9 @@ def write_outputs(ds: Dataset, rows: list[dict], meta: dict) -> dict:
     flags = Counter(f for r in matched for f in (r.get("flags") or "").split(";") if f)
     summary = dict(meta, matched=len(matched), unmatched=len(rows) - len(matched),
                    match_rate=round(100 * len(matched) / max(len(rows), 1), 2),
-                   match_types=dict(by_type.most_common()), median_precision_m=prec,
+                   match_types=dict(by_type.most_common()),
+                   tiers=dict(sorted(Counter(r.get("tier", "") for r in matched).items())),
+                   median_precision_m=prec,
                    unmatched_reasons=dict(Counter(reason_group(r.get("reason", "")) for r in unmatched).most_common()),
                    flags=dict(flags.most_common()))
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))

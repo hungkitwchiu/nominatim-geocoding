@@ -245,15 +245,25 @@ street is meant; that is left to the next step, which knows the streets that exi
 Along the way it removes units and notes (`# 1`, `APT 6`, `(REAR)`, `SUITE`, a unit
 number after the street type such as `UNIVERSITY AVE 211`), strips travel directions from
 surface-street intersections (`CORNHUSKER HWY EB & N 23RD ST`), and recognises that
-`7 ST E` is Seventh Street East rather than house 7 on "ST E".
+`7 ST E` is Seventh Street East rather than house 7 on "ST E". It also drops the city name
+when it is repeated as an extra comma-separated piece (`2400 PIEDMONT, BERKELEY, BERKELEY`),
+removes a ZIP code run into a name (`MARTIN LUTHER KING JR94709 WAY`), and joins ordinals
+written apart (`1600 8 TH` = 8th; `S 33 RD CIRC` = 33rd Circle, while `N 33 RD` is left as
+written because it can mean 33 Road).
+
+Where a department's redaction can be read two ways (Berkeley, `redacted_first_token`), the
+second reading is tried when the first finds nothing: `2100 CENTER & OXFORD ST` is house 2100
+at Center Street and Oxford Street, as there is no 21st Center, and `00 ROY AVE & VIRGINIA ST`
+is Le Roy Avenue (its `LE` redacted) rather than the 0–99 block of a Roy Avenue.
 
 ## Finding the street {#sec-resolve}
 
 Input names and OSM names go through the **same** normalisation: case, accents and
 punctuation; the full USPS list of street types (Publication 28, Appendix C1) plus local
 types such as Arch, Quay, Close and Chase; directions (`N` = North); ordinals (`7TH` =
-Seventh, `TWENTY FIRST` = 21st); and `ST`/`MT`/`DR` at the start of a name (Saint, Mount,
-Doctor). Each name is split into direction, name, type and trailing direction, and only
+Seventh, `TWENTY FIRST` = 21st); `ST`/`MT`/`DR` at the start of a name (Saint, Mount,
+Doctor); and `JR`/`SR`, which may be left out (`MLK WAY` = Martin Luther King Jr Way).
+Each name is split into direction, name, type and trailing direction, and only
 peeled apart when a name remains, so Lincoln's `N ST`, `O ST` and `W ST` stay streets named
 N, O and W.
 
@@ -267,6 +277,7 @@ a looser rule is only used when every stricter one failed:
 | extra type | `UNIVERSITY AVE ST` → University Avenue | 1 |
 | type is part of the name | `PINE LAKE` → Pine Lake Road; `ROSA PARKS` → Rosa Parks Way | 1 |
 | words after the type | `S 13TH ST ANTIQUES` → South 13th Street | +1 |
+| unit number after the name | `2100 DWIGHT 417` → Dwight Way (a name that ends in a number, such as `PIER 2`, matches as written first) | +1 |
 | redaction wildcard | `KAI00 AVE` → Kains Avenue (Berkeley) | 2 |
 | truncated field | `SILVERCREEK VALL` → Silver Creek Valley Road (San Jose) | 2 |
 | typo | `UNVIERSTIY AVE` → University Avenue (1–2 edits, digits must agree) | 3–5 |
@@ -276,16 +287,32 @@ Within a tier, a record's direction and street type are compared with each candi
 * a **missing direction** (`5TH ST` when only N 5th St and S 5th St exist) keeps all
   directional variants, and the house number or the cross street decides;
 * a **missing type** (`1800 UNIVERSITY`) keeps all types, likewise;
-* a **different type** (`FONTANOSO RD` when only Fontanoso Way exists) is accepted only if
-  that name has a single type in the area (`CORNHUSKER RD` = Cornhusker Highway and West
-  Cornhusker Highway), so `PARK AV` in Saint Paul, where there is no Park Avenue but Park
-  Street, Park Terrace, Park Circle and other types, stays uncoded;
+* a **different type** is a guess that the house number or the cross street must confirm
+  (@sec-locate); a street-only record never gets one. If the name has a single type in the
+  area, that type is taken (`FONTANOSO RD` = Fontanoso Way, `CORNHUSKER RD` = Cornhusker
+  Highway and West Cornhusker Highway). If it has several, the number or the cross street
+  picks one (flag `several_types`), with three limits: only between ordinary road types
+  (Street, Avenue, Boulevard, Road, Drive, Lane, Court, Place, Circle, Crescent, Way,
+  Terrace, Parkway, Trail, Loop and the like; Highway, Freeway and Expressway only as the
+  type changed *to*), and the confirming block or crossing must lie in the city.
+  `2100 SHATTUCK BLVD` in Berkeley is on Shattuck Avenue, because Shattuck Place has no 2100
+  block; `PARK AV` in Saint Paul (Park Street, Park Terrace, Park Circle and others) stays
+  uncoded, because the only 100 block is on a Park Street outside the city; and Cambridge's
+  `GREEN ST & MAGAZINE BEACH` never becomes Magazine Street, because a beach is not a road
+  type;
 * a **conflicting direction** (`S 56TH ST` vs North 56th Street) never matches.
 
-Typo tolerance is only used for a name that does not exist in the area at all. If
-`GORDON AV` exists but is refused (Norfolk has Gordon Street and Gordon Walk, so the type
-cannot be guessed), a street one letter away ("Dordon Street") is not taken instead, and a
-typo is never combined with a changed type.
+A type change on the exact name competes with any reading of the whole text that needs no
+change: the name with different spacing, the type word read as part of the name, a redacted
+or truncated name. Those readings rank first, and the number or the cross street decides
+between them. `VISTAGLEN DR & BERONA WY` is Vista Glen Drive, which meets Berona Way, not
+Vistaglen Court; `72ND & HOLMES PARK` is Holmes Park Road; but `2700 BLUEBILL DR` stays on
+Bluebill Road, because Blue Bill Drive has no 2700 block.
+
+Typo tolerance is only used for a name that does not exist in the area at all, and a typo is
+never combined with a changed type. Norfolk has Gordon Street and Gordon Walk but no Gordon
+Avenue, so `900 GORDON AV` is read as Gordon Street, the only one with a 900 block, never as
+"Dordon Street" one letter away.
 
 Every relaxation is recorded as a flag (`direction_added`, `type_missing`, `typo_1`, ...)
 and adds to the penalty; at most 6 is allowed per street.
@@ -337,6 +364,16 @@ Candidate streets that still point to **different** places make the record ambig
 `700 LITTLE CREEK RD, Norfolk` stays uncoded because both East and West Little Creek Road
 have a 700 block.
 
+On a single street, a block found in places farther apart is decided by the evidence when
+it is lopsided: a mis-numbered address point, or a TIGER range on the wrong piece of the
+street, can put a block in a second place. The place with at least five times the address
+points (and ranges) of all other places together wins, if it lies in the city and none of
+the others has more than four (`dominant_ratio`, `dominant_minority_max`; flag
+`dominant_evidence`, and `detail` says what was ignored). Berkeley's `1600 CEDAR ST` has 25
+address points in the 1600 block and one more 866 m away; the 25 win. `100 SEAWALL DR`, one
+point in each of two places, stays ambiguous, and so does a block whose main place lies
+outside the city.
+
 **Intersections.** The two streets' real geometries are intersected. Crossing points within
 60 m of each other (divided roads, slip lanes) are one junction. If the same two streets cross
 in two places more than 80 m apart (`MARTIN LUTHER KING JR WAY & ADELINE ST` in Berkeley
@@ -378,7 +415,10 @@ within the area. A street that exists is never swapped for a place sharing its n
 Berkeley` is not the "924 Gilman" club. A result is used only if it is called what the record
 says (or the record spells out its full multi-word name), it is the only such place, and it
 is small enough (radius ≤ 150 m; Danehy Park in Cambridge, 400 m across, and Fresh Pond Golf
-Course, 650 m, are refused). Text that looks like a street name is never sent to this
+Course, 650 m, are refused). A place-like name that matches a street only with its type word
+read as part of a longer street name, or with a changed type, is a guess, so the place is
+also tried when that street fails: `450 RYLAND PARK, San Jose` is the park, not Ryland Park
+Drive, which has no 450. Text that looks like a street name is never sent to this
 search, so `LEIGHTON ST` cannot match "Leighton Street Car Wash", and on an intersection the
 place must lie within 150 m of the other street (a "VTA Park and Ride" 16 km from Snell
 Avenue is refused).
@@ -395,6 +435,7 @@ Avenue is refused).
 | `address` | the input text (join key) |
 | `status` | `matched` or `unmatched` |
 | `match_type` | see the table below |
+| `tier` | `A`, `B` or `C`: how much interpretation the match needed (below) |
 | `lat`, `lon` | WGS84 coordinates |
 | `precision_m` | estimated radius in metres within which the incident location lies |
 | `matched` | the OSM street names (or place name) used |
@@ -418,10 +459,22 @@ Avenue is refused).
 | `poi` | a small named place | 25–150 m |
 | `coordinates` | coordinates typed into the record (only with `accept.coordinates_in_text`) | as typed |
 
+**Tiers.** `tier` says how much interpretation a match needed; `precision_m` says how far
+the point may lie from the incident. The two are independent: a typo-corrected street can
+have a precise crossing, and an exact name a long block.
+
+| Tier | Meaning | Assigned when |
+|---|---|---|
+| `A` | the street(s) as written, or after routine clean-up, placed on direct evidence | everything not in B or C: abbreviations, a missing, moved or extra type or direction, spacing, units and notes removed, the type word read as part of the name, redacted numbers |
+| `B` | a correction or inference that the evidence confirms, or a location near rather than at the evidence | a one-letter typo (`typo_1`, `second_chance`), a changed type (`type_changed`), a redacted or truncated name, words dropped after the type, an alternative or old name, a route number, `dominant_evidence`, `block_of_exact_number`, `between_known_numbers`, `offset_of_intersection`; `near_intersection` and `between` matches |
+| `C` | nothing confirms the reading | `street` and `poi` matches, typed coordinates, a two-letter typo, a number placed on a street without evidence for it (`number_not_found`) or on the first street of an intersection whose streets do not meet, a cross street or extra street ignored |
+
 Common flags: `direction_added` / `direction_dropped` / `direction_moved`,
-`type_missing` / `type_changed` / `type_unreliable`, `spacing`, `typo_1` / `typo_2`,
-`truncated`, `redacted_ordinal` / `redacted_name` / `redacted_zero_block`, `alt_name` (matched
-an alternative or old OSM name), `unit_removed`, `outside_city`, `preferred_in_city`,
+`type_missing` / `type_changed` / `type_unreliable`, `several_types` (the type was picked among
+several by the number or the cross street), `spacing`, `type_as_name`, `typo_1` / `typo_2`,
+`truncated`, `redacted_ordinal` / `redacted_number` / `redacted_name` / `redacted_zero_block`,
+`alt_name` (matched an alternative or old OSM name), `unit_removed`, `city_repeated`,
+`zip_removed`, `outside_city`, `preferred_in_city`, `dominant_evidence`,
 `number_not_found` (a short street was used because the number is not on it),
 `block_of_exact_number`, `between_known_numbers`, `offset_of_intersection` (San Jose
 `VINE ST S & O GOODYEAR ST`, "on Vine St south of Goodyear": precision at least 100 m),
@@ -430,9 +483,9 @@ drawn up to 15 m apart at a junction), `trailing_text`,
 `poi_side`, `outlier_points_dropped`.
 
 ::: {.callout-tip}
-## Using precision in an analysis
-Filter or weight on `precision_m` and `match_type` rather than on `status` alone. For a
-census-block analysis a sensible starting point is to keep everything with
+## Using precision and tier in an analysis
+Filter or weight on `precision_m`, `match_type` and `tier` rather than on `status` alone.
+For a census-block analysis a sensible starting point is to keep tiers A and B with
 `precision_m <= 100`, and to check how sensitive the results are to including the rest.
 :::
 
@@ -451,6 +504,8 @@ file can override any key.
 | `precision.street_max_radius_m` | 125 | street-only records: the street must fit in this radius |
 | `precision.poi_max_radius_m` | 150 | larger named places are refused |
 | `precision.same_street_merge_m` | 400 | evidence for one block on the same street within this distance is one place |
+| `precision.dominant_ratio` | 5 | a block in several places on one street: the place in the city with this many times the evidence of all others together wins... |
+| `precision.dominant_minority_max` | 4 | ...if none of the others has more address points than this |
 | `precision.max_precision_m` | 250 | nothing vaguer is accepted |
 | `precision.fuzzy_min_length` | 5 | no typo tolerance for shorter names |
 | `precision.max_penalty` | 6 | most relaxation allowed per street |
@@ -469,7 +524,7 @@ Dataset-specific parsing options:
 |---|---|---|
 | `strip_after: [";"]` | Lincoln | cut notes appended after a delimiter |
 | `truncation_length: 30` | San Jose | the records management system cuts long fields; allow prefix matches on the last street |
-| `redacted_first_token: true` | Berkeley | the first token had its last two characters replaced by `00` (`6700 ST` = 67th St, `KAI00` = Kains, `00 DARTMOUTH` = the 0–99 block) |
+| `redacted_first_token: true` | Berkeley | the first token had its last two characters replaced by `00` (`6700 ST` = 67th St, `KAI00` = Kains, `00 DARTMOUTH` = the 0–99 block); where that reads two ways, the other reading is tried when the first finds nothing (`2100 CENTER`, `00 ROY AVE`) |
 | `single_letter_suffixes: true` | San Jose | `OLIVE L` = Olive Lane; off elsewhere because Lincoln has an L Street |
 | `between_hyphen: true` | Lincoln | `26TH & K-N ST` = 26th St between K and N |
 | `unreliable_types: [ST]` | Lincoln | the department writes ST for streets of any type (`HUNTINGTON ST` = Huntington Avenue) |
@@ -559,20 +614,20 @@ the TIGER house-number ranges added:
 
 | City | Records | Matched, OSM only | Matched, with TIGER | Gained | Matches using TIGER numbers |
 |---|---:|---:|---:|---:|---:|
-| Berkeley | 3,996 | 3,774 (94.4%) | 3,797 (95.0%) | +23 | 99 |
-| Cambridge | 3,519 | 2,959 (84.1%) | 2,995 (85.1%) | +36 | 67 |
-| Lincoln | 40,568 | 25,215 (62.2%) | 34,474 (85.0%) | +9,259 | 11,883 |
-| Louisville | 43,919 | 37,348 (85.0%) | 37,951 (86.4%) | +603 | 1,059 |
-| Norfolk | 12,395 | 10,734 (86.6%) | 11,198 (90.3%) | +464 | 903 |
-| Saint Paul | 43,567 | 25,582 (58.7%) | 40,759 (93.6%) | +15,177 | 25,210 |
-| San Jose | 67,470 | 53,382 (79.1%) | 54,428 (80.7%) | +1,046 | 2,040 |
-| Virginia Beach | 33,763 | 28,859 (85.5%) | 29,438 (87.2%) | +579 | 936 |
-| **All** | **249,197** | **187,853 (75.4%)** | **215,040 (86.3%)** | **+27,187** | **42,197** |
+| Berkeley | 3,996 | 3,800 (95.1%) | 3,827 (95.8%) | +27 | 100 |
+| Cambridge | 3,519 | 2,968 (84.3%) | 3,004 (85.4%) | +36 | 67 |
+| Lincoln | 40,568 | 25,457 (62.8%) | 34,792 (85.8%) | +9,335 | 11,964 |
+| Louisville | 43,919 | 37,437 (85.2%) | 38,071 (86.7%) | +634 | 1,090 |
+| Norfolk | 12,395 | 10,758 (86.8%) | 11,234 (90.6%) | +476 | 913 |
+| Saint Paul | 43,567 | 25,672 (58.9%) | 40,829 (93.7%) | +15,157 | 25,226 |
+| San Jose | 67,470 | 53,646 (79.5%) | 54,696 (81.1%) | +1,050 | 2,051 |
+| Virginia Beach | 33,763 | 28,942 (85.7%) | 29,531 (87.5%) | +589 | 950 |
+| **All** | **249,197** | **188,680 (75.7%)** | **215,984 (86.7%)** | **+27,304** | **42,361** |
 
 TIGER matters most where OSM has few building addresses: the search areas of Lincoln and
 Saint Paul have 37,000 and 58,000 OSM address points, against 320,000 to 395,000 around
 Louisville, Norfolk, San Jose and Virginia Beach. There it lifts the match rate by 23 and
-35 percentage points; elsewhere by 0.6 to 3.7.
+35 percentage points; elsewhere by 0.7 to 3.8.
 
 **What the matches are.** Records by match type:
 
@@ -581,6 +636,10 @@ Louisville, Norfolk, San Jose and Virginia Beach. There it lifts the match rate 
 Median `precision_m` by match type:
 
 {{< include _generated/precision.md >}}
+
+**How much interpretation they needed.** Matches by tier (@sec-output):
+
+{{< include _generated/tiers.md >}}
 
 **What was left unmatched, and why:**
 
@@ -591,7 +650,7 @@ Median `precision_m` by match type:
 **How close is "near" for two streets that do not touch?** This is the setting with the
 largest effect. San Jose records often name a cul-de-sac with its nearest through street,
 which can be 80–200 m away. Near misses are accepted up to 100 m, each with its own
-precision (gap/2 + 10 m); with a 40 m limit, 1,693 of San Jose's 2,106 near intersections
+precision (gap/2 + 10 m); with a 40 m limit, 1,694 of San Jose's 2,113 near intersections
 would stay uncoded. Near misses by gap:
 
 {{< include _generated/near.md >}}
@@ -640,6 +699,31 @@ street index is built once and then cached.
 | `legacy/` | the earlier two-pass scripts (@sec-changelog) |
 
 # Changelog {#sec-changelog}
+
+## 0.2.0 (2026-10-24)
+
+More records are matched, and every match says how much interpretation it needed. On the
+eight example datasets 945 more records are matched (86.3% → 86.7%), one fewer (a San Jose
+intersection that now reads as two places), and 25 matches move, most of them to a street
+whose name matches the record more literally.
+
+* New `tier` column (`A`, `B`, `C`) in `results.csv`, and tier counts in `summary.json`
+  (@sec-output).
+* A name with several types in the area can be matched with a changed type when the house
+  number or the cross street confirms it inside the city (`2100 SHATTUCK BLVD` → Shattuck
+  Avenue); never between place words, and never from a highway type (@sec-resolve).
+* A type change on the exact name no longer hides readings of the whole text that need none
+  (`VISTAGLEN DR` → Vista Glen Drive, `HOLMES PARK` → Holmes Park Road); the number or the
+  cross street decides between them.
+* A block found in two places on one street is placed where nearly all of the evidence is
+  (`dominant_ratio`, `dominant_minority_max`; @sec-locate).
+* Reading the record: a repeated city name, a ZIP code run into a name, ordinals written
+  apart (`8 TH`), a unit number after a name without its type (`DWIGHT 417`), optional
+  `JR`/`SR`, and the second reading of Berkeley's redaction (`2100 CENTER`, `00 ROY AVE`).
+* A place-like name that only fits a longer street name is also tried as a named place
+  (`450 RYLAND PARK`).
+* Existing configurations work unchanged (two new keys under `precision:` have defaults), and
+  cached results are recomputed automatically.
 
 ## 0.1.0 (2026-10-24)
 

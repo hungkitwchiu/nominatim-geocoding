@@ -3,7 +3,8 @@
 Every function returns (locations, reason).  A location is only produced from real
 evidence: an OSM address point, a house-number range, a geometric crossing, or a
 short street.  When candidates point to different places the record is left
-uncoded as ambiguous rather than picking one.
+uncoded as ambiguous rather than picking one, unless one place on the street holds
+nearly all of the evidence for the number (a stray point elsewhere is outvoted).
 """
 from __future__ import annotations
 
@@ -57,8 +58,44 @@ def _merge(locs: list[Location], extra_flags=()) -> Location:
                    flags=flags, in_core=any(l.in_core for l in locs), weight=float(w.sum()))
 
 
+def _places(group: list[Location], radius: float) -> list[list[Location]]:
+    """Locations grouped into places: chains of locations within `radius` of each other."""
+    out: list[list[Location]] = []
+    for l in group:
+        hits = [g for g in out if any(math.hypot(l.x - m.x, l.y - m.y) <= radius for m in g)]
+        out = [g for g in out if all(g is not h for h in hits)] + [[l] + [m for g in hits for m in g]]
+    return out
+
+
+def _dominant(group: list[Location], ds, radius: float) -> Location | None:
+    """The place that holds nearly all of a street's evidence for a number, or None.
+
+    A mis-numbered address point, or a TIGER range on the wrong piece of the street, can put a
+    block in two places: Berkeley's 1600 block of Cedar Street has 25 address points in one
+    place and 1 point 870 m away.  On one street, the main place wins if it lies in the city,
+    holds at least `dominant_ratio` times the evidence of all other places together, and none
+    of those has more than `dominant_minority_max` points.
+    """
+    if len({l.names for l in group}) != 1:
+        return None
+    ranked = sorted(((sum(l.weight for l in p), p) for p in _places(group, radius)), key=lambda t: -t[0])
+    if len(ranked) < 2:
+        return None
+    (top, main), rest = ranked[0], ranked[1:]
+    others = sum(w for w, _ in rest)
+    if not (any(l.in_core for l in main)
+            and top >= float(ds.precision.get("dominant_ratio", 5)) * others
+            and max(w for w, _ in rest) <= float(ds.precision.get("dominant_minority_max", 4))):
+        return None
+    loc = _merge(main, ("dominant_evidence",))
+    near = min(math.hypot(loc.x - l.x, loc.y - l.y) for _, p in rest for l in p)
+    return replace(loc, detail=f"{loc.detail}; {others:.0f} conflicting point(s) or range(s) "
+                               f"{near:.0f} m away ignored")
+
+
 def choose(locs: list[Location], ds, what: str) -> tuple[Location | None, str | None]:
-    """Pick the least-relaxed evidence; refuse when it points to different places."""
+    """Pick the least-relaxed evidence; refuse when it points to different places, unless
+    (for a number) one place on the street holds nearly all of the evidence."""
     if not locs:
         return None, None
     radius = float(ds.precision.get("ambiguity_radius_m", 80))
@@ -86,12 +123,18 @@ def choose(locs: list[Location], ds, what: str) -> tuple[Location | None, str | 
             alt = best_of(in_city)
             if compact(alt):
                 return _merge(alt, ("preferred_in_city",)), None
+            main = _dominant(alt, ds, radius) if what == "street/number" else None
+            if main:
+                return replace(main, flags=main.flags + ("preferred_in_city",)), None
             return None, f"ambiguous {what}: {places(alt)} different places in the city"
     if compact(tier):
         return _merge(tier), None
     core = [l for l in tier if l.in_core]
     if core and len(core) < len(tier) and compact(core):
         return _merge(core, ("preferred_in_city",)), None
+    main = _dominant(tier, ds, radius) if what == "street/number" else None
+    if main:
+        return main, None
     return None, f"ambiguous {what}: {places(tier)} different places"
 
 
@@ -275,8 +318,11 @@ def locate_number(cands: list[Candidate], number: int, mode: str, index: AreaInd
             if not evidence or _motorway_entry(index, c.entry, cl.segs):
                 continue
             for x, y, mt, prec, src, detail, fl, weight in evidence:
+                in_core = index.in_core(x, y)
+                if "several_types" in c.flags and not in_core:
+                    continue           # a type picked among several needs evidence in the city
                 locs.append(Location(x, y, mt, prec, src, (c.entry.display,), c.flags + fl,
-                                     c.penalty, index.in_core(x, y), detail, weight))
+                                     c.penalty, in_core, detail, weight))
     locs = _merge_same_street(locs, float(ds.precision.get("same_street_merge_m", 400)))
     names = "/".join(sorted({c.entry.display for c in cands})[:3])
     if locs:
@@ -543,6 +589,9 @@ def locate_intersection(cands_a: list[Candidate], cands_b: list[Candidate], inde
             for group in _cluster_points(pts, merge_m):
                 xs = [p[0] for p in group]; ys = [p[1] for p in group]
                 cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
+                in_core = index.in_core(cx, cy)
+                if not in_core and ("several_types" in ca.flags or "several_types" in cb.flags):
+                    continue           # a type picked among several needs the crossing in the city
                 spread = max(math.hypot(x - cx, y - cy) for x, y in zip(xs, ys))
                 kind = group[0][2]
                 gap = min(p[3] for p in group)
@@ -562,7 +611,7 @@ def locate_intersection(cands_a: list[Candidate], cands_b: list[Candidate], inde
                           f"gap {gap:.0f} m" + (f", side by side for {stretch:.0f} m" if stretch > 40.0 else ""))
                 locs.append(Location(cx, cy, kind, prec, "osm_geometry",
                                      (ca.entry.display, cb.entry.display), flags,
-                                     ca.penalty + cb.penalty, index.in_core(cx, cy), detail))
+                                     ca.penalty + cb.penalty, in_core, detail))
     if not locs:
         return None, "streets do not meet" + _gap_note(cands_a, cands_b, index)
     loc, reason = choose(locs, ds, "intersection")

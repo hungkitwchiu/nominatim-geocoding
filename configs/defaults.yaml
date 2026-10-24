@@ -34,6 +34,8 @@ precision:
   poi_max_radius_m: 150             # named places larger than this are not accepted
   number_neighbor_max_gap: 20       # real house numbers: interpolate between neighbours this close
   same_street_merge_m: 400          # evidence for one block on the same street (long blocks, interrupted streets)
+  dominant_ratio: 5                 # a block found in several places on one street: a place in the city with
+  dominant_minority_max: 4          # this many times the evidence of all others wins, if none has more points than this
   max_precision_m: 250              # final gate: nothing vaguer than this is accepted
   fuzzy_min_length: 5               # no typo tolerance for names shorter than this
   max_penalty: 6                    # most relaxation allowed per street (see the documentation)

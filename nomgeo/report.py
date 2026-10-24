@@ -14,6 +14,7 @@ from .config import load_dataset
 from .pipeline import reason_group
 
 TYPES = ["house", "interpolated", "block", "between", "intersection", "near_intersection", "street", "poi"]
+TIERS = ["A", "B", "C"]
 LABEL = {"berkeley": "Berkeley", "cambridge": "Cambridge", "lincoln": "Lincoln", "louisville": "Louisville",
          "norfolk": "Norfolk", "san_jose": "San Jose", "saint_paul": "Saint Paul",
          "virginia_beach": "Virginia Beach"}
@@ -57,7 +58,7 @@ def _timing_table(path: Path, names: list[str]) -> str:
 def build(configs: list[str], out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     datasets = [load_dataset(c) for c in configs]
-    res_rows, type_rows, reason_rows, gap_rows, prec_rows, near_rows = [], [], [], [], [], []
+    res_rows, type_rows, reason_rows, gap_rows, prec_rows, near_rows, tier_rows = [], [], [], [], [], [], []
     tot = Counter()
     reasons_all = Counter()
     for ds in datasets:
@@ -72,6 +73,9 @@ def build(configs: list[str], out_dir: Path) -> None:
 
         by = Counter(r["match_type"] for r in matched)
         type_rows.append([name] + [f"{by.get(t, 0):,}" for t in TYPES])
+        by_tier = Counter(r.get("tier") for r in matched)
+        tier_rows.append([name] + [f"{by_tier.get(t, 0):,} ({_pct(by_tier.get(t, 0), len(matched))})"
+                                   for t in TIERS])
         prec = {t: sorted(float(r["precision_m"]) for r in matched if r["match_type"] == t) for t in TYPES}
         prec_rows.append([name] + [f"{v[len(v) // 2]:.0f}" if v else "-" for v in prec.values()])
 
@@ -100,6 +104,7 @@ def build(configs: list[str], out_dir: Path) -> None:
     (out_dir / "timing.md").write_text(_timing_table(Path(datasets[0].output_dir) / "benchmark.json",
                                                      [ds.name for ds in datasets]))
     (out_dir / "match_types.md").write_text(_table(["City"] + TYPES, type_rows))
+    (out_dir / "tiers.md").write_text(_table(["City"] + [f"Tier {t}" for t in TIERS], tier_rows))
     (out_dir / "precision.md").write_text(_table(["City"] + TYPES, prec_rows))
     groups = [g for g, _ in reasons_all.most_common()]
     (out_dir / "unmatched.md").write_text(_table(

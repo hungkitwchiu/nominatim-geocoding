@@ -11,7 +11,7 @@ from nomgeo.parse import ADDRESS, BETWEEN, COORDINATES, EMPTY, HIGHWAY, INTERSEC
 
 
 def ds(**kw):
-    base = dict(state="CA", rules=[], strip_after=[], truncation_length=None,
+    base = dict(state="CA", city=None, rules=[], strip_after=[], truncation_length=None,
                 redacted_first_token=False, single_letter_suffixes=False, between_hyphen=False,
                 unreliable_types=frozenset())
     base.update(kw)
@@ -27,7 +27,9 @@ class SplitStreet(unittest.TestCase):
                      ("1ST VIEW ST", "First View Street"), ("UNIVERSITY AV E", "University Avenue East"),
                      ("ST CLAIR AV", "St. Clair Avenue"), ("MLK JR WAY", "Martin Luther King Junior Way"),
                      ("DR W J HODGE ST", "Dr. W.J. Hodge Street"), ("OCONNER CRES", "O'Conner Crescent"),
-                     ("SIXTY-SECOND ST", "62nd Street"), ("21ST 1/2 ST", "21 1/2 Street")]:
+                     ("SIXTY-SECOND ST", "62nd Street"), ("21ST 1/2 ST", "21 1/2 Street"),
+                     ("MLK WAY", "Martin Luther King Jr Way"),
+                     ("MARTIN LUTHER KING WAY", "Martin Luther King Junior Way")]:
             self.same(a, b)
 
     def test_letter_and_direction_names_survive(self):
@@ -99,6 +101,37 @@ class ParseRecord(unittest.TestCase):
         r = parse_record("00 DARTMOUTH ST, BERKELEY, CA", b)
         self.assertEqual((r.number, r.streets), (0, ["DARTMOUTH ST"]))
         self.assertTrue(parse_record("KAI00 AVE, BERKELEY, CA", b).wildcard_first)
+
+    def test_berkeley_redaction_other_readings(self):
+        b = ds(redacted_first_token=True)
+        raw = "2100 CENTER & OXFORD ST, BERKELEY, CA"
+        r = parse_record(raw, b)
+        self.assertEqual((r.streets, r.alternative), (["21ST CENTER", "OXFORD ST"], "number"))
+        r = parse_record(raw, b, reading="number")
+        self.assertEqual((r.kind, r.number, r.streets), (INTERSECTION, 2100, ["CENTER", "OXFORD ST"]))
+        raw = "00 ROY AVE & VIRGINIA ST, BERKELEY, CA"
+        self.assertEqual(parse_record(raw, b).alternative, "name")
+        r = parse_record(raw, b, reading="name")
+        self.assertEqual((r.streets, r.wildcard_first), (["00 ROY AVE", "VIRGINIA ST"], True))
+
+    def test_repeated_city_and_glued_zip(self):
+        r = parse_record("2400 PIEDMONT, BERKELEY, BERKELEY, CA", ds(city="Berkeley"))
+        self.assertEqual((r.number, r.streets), (2400, ["PIEDMONT"]))
+        self.assertIn("city_repeated", r.flags)
+        r = parse_record("1600 MARTIN LUTHER KING JR94709 WAY, BERKELEY, CA", ds())
+        self.assertEqual((r.number, r.streets), (1600, ["MARTIN LUTHER KING JR WAY"]))
+        self.assertIn("zip_removed", r.flags)
+        self.assertEqual(parse_record("GRETNA, NE, Lincoln, NE", ds(city="Lincoln")).kind, OTHER_PLACE)
+
+    def test_split_ordinals(self):
+        for raw, number, streets in [("1600 8 TH, BERKELEY, CA", 1600, ["8TH"]),
+                                     ("8600 S 33 RD CIRC, Lincoln, NE", 8600, ["S 33RD CIRC"]),
+                                     ("22 ND ST & PORTLAND AVE, Louisville, KY", None, ["22ND ST", "PORTLAND AVE"]),
+                                     ("5800 N 33 RD, Lincoln, NE", 5800, ["N 33 RD"]),       # maybe 33 Road
+                                     ("1 ST JAMES PL, Louisville, KY", 1, ["ST JAMES PL"]),
+                                     ("N 11 ND ST & O ST, Lincoln, NE", None, ["N 11 ND ST", "O ST"])]:  # 11TH
+            r = parse_record(raw, ds())
+            self.assertEqual((r.number, r.streets), (number, streets), raw)
 
     def test_lincoln_between(self):
         r = parse_record("26TH & K-N ST, Lincoln, NE", ds(state="NE", between_hyphen=True))

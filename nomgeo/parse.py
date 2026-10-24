@@ -37,7 +37,8 @@ class Record:
     truncated: bool = False            # last street may be cut at the dataset's field width
     wildcard_first: bool = False       # first token of first street is redacted ("KAI00")
     single_alternative: str | None = None  # "ROUGH AND READY RD": try as one street too
-    redacted_alternative: str | None = None  # "00 LOMA": 0-block of Loma, or "LA LOMA"?
+    alternative: str | None = None     # the other reading of a redacted first token, tried if this
+                                       # one fails: "name" ("00 LOMA") or "number" ("2100 CENTER")
     coords: tuple[float, float] | None = None
 
 
@@ -115,24 +116,57 @@ def apply_rules(text: str, rules) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def parse_record(raw: str, ds, redacted_name: bool = False) -> Record:
+_SPLIT_ORDINAL = re.compile(r"\b(\d+) (TH|ND|RD)\b")
+
+
+def _join_ordinals(text: str) -> str:
+    """'1600 8 TH' -> '1600 8TH', 'S 33 RD CIRC' -> 'S 33RD CIRC'.
+
+    Only when the suffix is the right one for the number and the ordinal ends the street
+    name (the text ends, or '&', a type or a direction follows).  'RD' only before a type,
+    because '33 RD' can be 33 Road; 'ST' is left alone ('1 ST JAMES PL').
+    """
+    def join(m):
+        number, sfx = m.group(1), m.group(2)
+        nxt = (text[m.end():].split() or [""])[0]
+        typed = bool(suffix_options(nxt))
+        if not ordinal(int(number)).endswith(sfx) or (sfx == "RD" and not typed):
+            return m.group(0)
+        return number + sfx if nxt in ("", "&") or typed or nxt in _DIRECTIONS else m.group(0)
+    return _SPLIT_ORDINAL.sub(join, text)
+
+
+def parse_record(raw: str, ds, reading: str | None = None) -> Record:
     """Classify and clean one record.  `ds` is the dataset config (see config.py).
 
-    `redacted_name=True` reads a leading "00" as a redacted name ("00 LOMA" = "LA LOMA")
-    instead of the default reading as a redacted 1-2 digit house number (0-99 block).
+    `reading` picks the other reading of a redacted first token (`redacted_first_token`):
+    "name" reads a leading "00" as a redacted name ("00 LOMA" = "LA LOMA") instead of the
+    0-99 block, and "number" reads "2100" as house 2100 instead of the ordinal "21ST".
     """
     rec = Record(raw=raw)
     street, rec.city, rec.state = _split_city_state(raw or "", ds.state)
     if rec.state:
         rec.state = rec.state.strip().upper()
 
-    # Extra comma-separated pieces naming a state ("GRETNA, NE, Lincoln, NE").
     pieces = [p.strip().upper() for p in street.split(",")]
+    # Extra comma-separated pieces repeating the city ("2400 PIEDMONT, BERKELEY, BERKELEY, CA").
+    city_names = {clean(c) for c in (rec.city, ds.city) if c}
+    kept = pieces[:1] + [p for p in pieces[1:] if clean(p) not in city_names]
+    if len(kept) < len(pieces):
+        pieces = kept
+        rec.flags.append("city_repeated")
+    # ... or naming a state ("GRETNA, NE, Lincoln, NE").
     if len(pieces) > 1 and any(p in US_STATES or len(p) > 2 and p.split()[-1] in US_STATES
                                for p in pieces[1:]):
         rec.kind, rec.note = OTHER_PLACE, "names another place"
         return rec
     street = " ".join(pieces)
+
+    # A ZIP code run into the name ("MARTIN LUTHER KING JR94709 WAY").
+    unzipped = re.sub(r"(?<=[A-Z]{2})\d{5}(?:-\d{4})?\b", " ", street)
+    if unzipped != street:
+        street = unzipped
+        rec.flags.append("zip_removed")
 
     street = apply_rules(street, ds.rules)
     for delim in ds.strip_after:
@@ -155,7 +189,7 @@ def parse_record(raw: str, ds, redacted_name: bool = False) -> Record:
     if unit_free.split() != text.split():
         rec.flags.append("unit_removed")
     between = _between(unit_free) if ds.between_hyphen else None
-    text = clean(unit_free)
+    text = _join_ordinals(clean(unit_free))
     rec.street_text = text
     rec.truncated = bool(ds.truncation_length) and len(street) >= ds.truncation_length - 1
 
@@ -199,15 +233,19 @@ def parse_record(raw: str, ds, redacted_name: bool = False) -> Record:
     if ds.redacted_first_token:
         first, *rest = text.split()
         nxt = rest[0] if rest else ""
-        if re.fullmatch(r"[1-9]\d*00", first) and (not rest or nxt == "&" or
-                                                   (suffix_options(nxt) and (len(rest) == 1 or rest[1] == "&"))):
+        if re.fullmatch(r"[1-9]\d*00", first) and reading == "number":
+            rec.flags.append("redacted_number")
+        elif re.fullmatch(r"[1-9]\d*00", first) and (not rest or nxt == "&" or
+                                                     (suffix_options(nxt) and (len(rest) == 1 or rest[1] == "&"))):
             text = " ".join([ordinal(int(first[:-2]))] + rest)
             rec.flags.append("redacted_ordinal")
-        elif first == "00" and rest and not redacted_name:
+            if rest and nxt != "&":
+                rec.alternative = "number"     # "2100 CENTER": or house 2100 on Center Street
+        elif first == "00" and rest and reading != "name":
             # A one- or two-digit house number redacted to "00": the 0-99 block.
             text = " ".join(["0"] + rest)
             rec.flags.append("redacted_zero_block")
-            rec.redacted_alternative = raw
+            rec.alternative = "name"
         elif re.fullmatch(r"[A-Z0-9]*[A-Z][A-Z0-9]*00|00", first):
             rec.wildcard_first = True
             rec.flags.append("redacted_name")
@@ -217,7 +255,7 @@ def parse_record(raw: str, ds, redacted_name: bool = False) -> Record:
     number = None
     m = _NUMBER_RE.match(text)
     if m and not rec.wildcard_first:
-        if not _number_is_name(text[m.end():].split("&")[0].split()):
+        if "redacted_number" in rec.flags or not _number_is_name(text[m.end():].split("&")[0].split()):
             number = int(m.group(1))
             text = text[m.end():]
 
@@ -227,8 +265,9 @@ def parse_record(raw: str, ds, redacted_name: bool = False) -> Record:
         parts = [p for p in parts if p not in _DEAD_END]
         rec.flags.append("dead_end")
     # Strip house numbers glued to later parts ("8100 DIVEN ARCH AND 8100 NORFOLK CROSSING"),
-    # but keep numbered street names ("ROBERT ST & 7 ST E").
-    parts = [p if _number_is_name(p.split()[1:]) else re.sub(r"^\d+\s+(?=\D)", "", p) for p in parts]
+    # but keep numbered street names ("ROBERT ST & 7 ST E") and a redacted name ("00 ROY AVE").
+    parts = [p if (i == 0 and rec.wildcard_first) or _number_is_name(p.split()[1:])
+             else re.sub(r"^\d+\s+(?=\D)", "", p) for i, p in enumerate(parts)]
     # Unit numbers written after the street type ("UNIVERSITY AVE 211", "MLK JR WAY 2E").
     stripped = []
     for p in parts:

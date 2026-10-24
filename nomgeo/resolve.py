@@ -4,12 +4,14 @@ Matching proceeds through tiers and stops at the first tier that finds anything,
 so a looser rule is only tried when every stricter one failed:
 
   exact name  ->  spacing ("VANDORN" = "Van Dorn")  ->  extra trailing type
+  ->  type as part of the name  ->  words after the type  ->  unit number after the name
   ->  redaction wildcard ("KAI00" = "Kains")  ->  truncated field ("SILVERCREEK VALL")
   ->  typo tolerance (1-2 edits, unique, digits must agree)
 
 Within a tier, directional and street-type differences are scored, and only the
-least-relaxed variants survive (an exact "MAIN ST" hides "MAIN AVE").  Every
-relaxation is recorded as a flag and adds to a penalty so results can be audited.
+least-relaxed variants survive (an exact "MAIN ST" hides "MAIN AVE").  A changed type on
+the exact name competes with the other readings of the whole text, which rank first.
+Every relaxation is recorded as a flag and adds to a penalty so results can be audited.
 """
 from __future__ import annotations
 
@@ -19,8 +21,8 @@ from dataclasses import dataclass
 from rapidfuzz import process
 from rapidfuzz.distance import OSA
 
-from .normalize import (DIRECTIONS, StreetName, clean, parse_route, prefix_form, split_street,
-                        suffix_options)
+from .normalize import (DIRECTIONS, HIGHWAY_TYPES, ROAD_TYPES, StreetName, clean, parse_route,
+                        prefix_form, split_street, suffix_options)
 from .streets import AreaIndex, StreetEntry
 
 TIER_PENALTY = {"exact": 0, "spacing": 1, "extra_type": 1, "type_as_name": 1, "redacted": 2,
@@ -90,11 +92,16 @@ def _score_entries(sn: StreetName, keys, index: AreaIndex, tier: str, extra_flag
     if any(s < 3 for _, _, s, _ in scored):
         scored = [t for t in scored if t[2] < 3]
     elif len({e.name.suffix for e, _, _, _ in scored}) > 1:
-        # Only a changed type is left.  That is a fair guess when the name has one type in
-        # the area ("FONTANOSO RD" = Fontanoso Way; "CORNHUSKER RD" = Cornhusker Highway and
-        # its West part) but not when it has several ("PARK AV" with no Park Ave but Park
-        # Street, Park Terrace, Park Circle ...).
-        return []
+        # Only a changed type is left.  When the name has one type in the area that is a fair
+        # guess ("FONTANOSO RD" = Fontanoso Way; "CORNHUSKER RD" = Cornhusker Highway and its
+        # West part).  When it has several, the house number or the cross street must pick
+        # one, inside the city (locate.py): "2100 SHATTUCK BLVD" is on Shattuck Avenue, not
+        # Shattuck Place.  Only between plain road types and on the exact name: "MAGAZINE
+        # BEACH" is not Magazine Street, and a highway's type is never changed.
+        if tier != "exact" or not sn.suffix or not sn.suffix <= ROAD_TYPES:
+            return []
+        scored = [t for t in scored if t[0].name.suffix and t[0].name.suffix <= ROAD_TYPES | HIGHWAY_TYPES]
+        extra_flags = tuple(extra_flags) + ("several_types",)
     out = []
     for e, dpen, spen, flags in scored:
         pen = TIER_PENALTY[tier] + dpen + spen + (1 if e.alt else 0)
@@ -153,7 +160,9 @@ def resolve_typo(text: str, index: AreaIndex, ds) -> list[Candidate]:
 
 
 def _resolve_tiers(text: str, index: AreaIndex, ds, truncated: bool = False,
-                   wildcard_first: bool = False) -> list[Candidate]:
+                   wildcard_first: bool = False, whole_text_only: bool = False) -> list[Candidate]:
+    """The candidates of the first tier that finds any.  `whole_text_only` leaves out the exact
+    name and the tiers that drop words or allow typos (to look past a changed type)."""
     min_len = int(ds.precision.get("fuzzy_min_length", 5))
     max_pen = int(ds.precision.get("max_penalty", 6))
     out: list[Candidate] = []
@@ -178,16 +187,29 @@ def _resolve_tiers(text: str, index: AreaIndex, ds, truncated: bool = False,
     def score(name, keys, tier):
         return first(_score_entries(name, keys, index, tier, unreliable=ds.unreliable_types))
 
+    def found(cands):
+        # Looking past a changed type (whole_text_only), only a reading that keeps the type counts.
+        return any(not whole_text_only or "type_changed" not in c.flags for c in cands)
+
     # Tier: exact base name.
-    cands = score(sn, index.by_base.get(sn.base_key, set()), "exact")
+    cands = [] if whole_text_only else score(sn, index.by_base.get(sn.base_key, set()), "exact")
     if cands:
-        return out + cands
+        if any("type_changed" not in c.flags for c in cands):
+            return out + cands
+        # Only a changed type fits the name as written.  Readings of the whole text that keep
+        # the record's type compete with it and rank first ("VISTAGLEN DR & BERONA WY" is Vista
+        # Glen Drive, not Vistaglen Court), but the number or the cross street decides: "2700
+        # BLUEBILL DR" stays on Bluebill Road when Blue Bill Drive has no 2700 block.  Readings
+        # that drop words or need a typo do not compete.
+        other = [c for c in _resolve_tiers(text, index, ds, truncated, wildcard_first, whole_text_only=True)
+                 if not c.entry.is_ref and "type_changed" not in c.flags]
+        return out + other + cands
 
     # Tier: spacing / punctuation ("VANDORN" = "VAN DORN", "EASTSHORE" = "EAST SHORE").
     keys = index.by_squash.get(sn.squash_key, set()) | index.by_squash_base.get(
         "".join(sn.raw[1:] if sn.predir else sn.raw), set())
     cands = score(sn, keys, "spacing")
-    if cands:
+    if found(cands):
         return out + cands
     # ... including a type word fused into the name ("IVANWAY ST" = "Ivan Way").
     toks = clean(text).split()
@@ -195,12 +217,12 @@ def _resolve_tiers(text: str, index: AreaIndex, ds, truncated: bool = False,
         keys = index.by_prefix_form.get(prefix_form(" ".join(toks[:-1])), set())
         loose = StreetName(sn.predir, sn.base, frozenset(), sn.postdir, sn.raw)
         cands = score(loose, keys, "spacing")
-        if cands:
+        if found(cands):
             return out + cands
 
     # Tier: an extra trailing type ("UNIVERSITY AVE ST" -> "UNIVERSITY AVE").  The remaining
     # type must agree: "ELDERBERRY RIDGE LN" must not become "Elderberry Lane".
-    if len(sn.base) >= 2 and suffix_options(sn.base[-1]):
+    if not whole_text_only and len(sn.base) >= 2 and suffix_options(sn.base[-1]):
         sn2 = StreetName(sn.predir, sn.base[:-1], suffix_options(sn.base[-1]), sn.postdir, sn.raw[:-1])
         cands = score(sn2, index.by_base.get(sn2.base_key, set()), "extra_type")
         cands = [c for c in cands if "type_changed" not in c.flags]
@@ -215,12 +237,12 @@ def _resolve_tiers(text: str, index: AreaIndex, ds, truncated: bool = False,
             keys |= index.by_base.get(" ".join(sn.base + (opt,)), set())
         loose = StreetName(sn.predir, sn.base, frozenset(), sn.postdir, sn.raw)
         cands = score(loose, keys, "type_as_name")
-        if cands:
+        if found(cands):
             return out + cands
 
     # Tier: words after the street type ("S 13TH ST ANTIQUES", "ELKCREST DR HEALTH G").
     type_pos = [i for i, t in enumerate(toks[1:-1], 1) if suffix_options(t)]
-    if type_pos:
+    if type_pos and not whole_text_only:
         k = type_pos[-1]
         tail = toks[k + 1:]
         if not any(suffix_options(t) or t in DIRECTIONS for t in tail):
@@ -230,11 +252,21 @@ def _resolve_tiers(text: str, index: AreaIndex, ds, truncated: bool = False,
             if first(cands):
                 return out + first(cands)
 
+    # Tier: a unit number after a name written without its type ("DWIGHT 417" = Dwight Way,
+    # unit 417).  Only reached when the text as written matched nothing, so a name that ends
+    # in a number ("PIER 2") is unaffected.
+    if (not whole_text_only and len(toks) >= 2 and re.fullmatch(r"\d{1,5}[A-Z]?", toks[-1])
+            and any(re.search(r"[A-Z]{2}", t) and t not in DIRECTIONS for t in toks[:-1])):
+        cands = [Candidate(c.entry, c.penalty + 1, ("unit_removed",) + c.flags)
+                 for c in resolve(" ".join(toks[:-1]), index, ds) if not WEAK_RELAXATIONS & set(c.flags)]
+        if first(cands):
+            return out + first(cands)
+
     # Tier: redacted first token (Berkeley "KAI00 AVE", "S00 PABLO AVE", "00 LOMA").
     if wildcard_first:
-        cands = _resolve_wildcard(text, index, ds)
-        if cands:
-            return out + first(cands)
+        cands = first(_resolve_wildcard(text, index, ds))
+        if found(cands):
+            return out + cands
 
     # Tier: field cut off at a fixed width (San Jose "SILVERCREEK VALL", "BIRKHAVEN P").
     if truncated:
@@ -244,14 +276,14 @@ def _resolve_tiers(text: str, index: AreaIndex, ds, truncated: bool = False,
             # The cut may have removed the type or directional, so only conflicts count.
             loose = StreetName(sn.predir, sn.base, frozenset(), None, sn.raw)
             cands = score(loose, keys, "truncated")
-            if cands:
+            if found(cands):
                 return out + cands
 
     # Tier: typo tolerance, only for a name that does not exist here at all.  If the name
     # exists but was refused above (several types, a conflicting direction), a street one
     # letter away is not a better reading ("GORDON AV" must not become "Dordon Street"), and a
     # typo is never combined with a changed type.
-    if not index.by_base.get(sn.base_key):
+    if not whole_text_only and not index.by_base.get(sn.base_key):
         keys, tier = _fuzzy_keys(sn, index, min_len)
         if keys:
             cands = [c for c in score(sn, keys, tier) if "type_changed" not in c.flags]
@@ -259,7 +291,7 @@ def _resolve_tiers(text: str, index: AreaIndex, ds, truncated: bool = False,
                 return out + cands
 
     # Last resort: a bare 2-3 digit number with no such numbered street is a route ("87" = CA 87).
-    if not out and re.fullmatch(r"\d{2,3}", text.strip()):
+    if not out and not whole_text_only and re.fullmatch(r"\d{2,3}", text.strip()):
         for (net, num), ks in index.by_ref.items():
             if num == text.strip():
                 out += [Candidate(index.entries[k], 2, ("bare_route_number",)) for k in sorted(ks)]

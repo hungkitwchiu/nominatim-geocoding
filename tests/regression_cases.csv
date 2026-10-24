@@ -1,53 +1,73 @@
-dataset,address,expect_status,expect_type,expect_name,forbid_name,expect_in_city,why
-berkeley,"UNIVERSITY AVE & 7TH ST, BERKELEY, CA",matched,intersection,Seventh Street,,,legacy matched 67th St in Emeryville (substring match)
-berkeley,"4TH ST & JONES ST, BERKELEY, CA",matched,intersection,Fourth Street,,,legacy matched a point in San Francisco
-berkeley,"6700 ST & SAN PABLO AVE, BERKELEY, CA",matched,intersection,67th Street,,,redacted ordinal 67TH -> 6700
-berkeley,"400 ST & GILMAN ST, BERKELEY, CA",matched,intersection,Fourth Street,,,redacted ordinal 4TH -> 400
-berkeley,"1300 9TH ST, BERKELEY, CA",matched,block,Ninth Street,,,block from address points; OSM spells Ninth
-berkeley,"3500 DWIGHT WAY, BERKELEY, CA",matched,block,Dwight Way,,,legacy put every Dwight Way block on one segment centroid
-berkeley,"1800 UNIVERSITY AVE 211, BERKELEY, CA",matched,block,University Avenue,,,trailing unit number
-berkeley,"MARTIN LUTHER KING JR WAY & ADELINE ST, BERKELEY, CA",unmatched,,,,,the two streets cross twice ~600 m apart
-berkeley,"NA, BERKELEY, CA",unmatched,,,,,placeholder
-berkeley,"ASHBY AVE & I-80 HWY, BERKELEY, CA",unmatched,,,,,interchange (policy)
-berkeley,"200 37.8696807843512;-122.319669759703, BERKELEY, CA",unmatched,,,,,coordinates in text (policy)
-cambridge,"0 Eliot Cir, Cambridge, MA",unmatched,,,,,legacy matched John Eliot Square in Boston
-cambridge,"White St & Porter Sq, Cambridge, MA",matched,poi,Porter Square,,,named square on an intersection
-saint_paul,"7 ST E & ROBERT ST N, Saint Paul, MN",matched,intersection,7th Street East,,,number is the street name
-saint_paul,"100 PARK AV, Saint Paul, MN",unmatched,,,,,no Park Ave; eleven other Park streets
-norfolk,"3100, Norfolk, VA",unmatched,,,,,legacy returned the city centre
-norfolk,"9000 1ST VIEW ST, Norfolk, VA",matched,block,First View Street,,,ordinal spelled out in OSM
-norfolk,"700 LITTLE CREEK RD, Norfolk, VA",unmatched,,,,,both E and W Little Creek Rd have a 700 block
-norfolk,"8100 DIVEN ARCH AND 8100 NORFOLK CROSSING, Norfolk, VA",matched,intersection,Diven Arch,,,two addresses joined by AND
-lincoln,"S 14TH & K-L, Lincoln, NE",matched,between,South 14th Street,,,Lincoln between-notation
-lincoln,"5900 CORNHUSKER ST, Lincoln, NE",matched,block,Cornhusker Highway,,,LPD writes ST for any type
-lincoln,"48TH AND LEIGHTON ST, Lincoln, NE",matched,intersection,Leighton Avenue,,,must not become 'Leighton Street Car Wash'
-lincoln,"HWY 77 & I-80, Lincoln, NE",unmatched,,,,,interchange (policy)
-virginia_beach,"7TH ST & PACIFIC AVE, Virginia Beach, VA",matched,intersection,7th Street,,,legacy matched 27th St
-virginia_beach,"NORFOLK AVE & SPENCER CT, Virginia Beach, VA",unmatched,,,,,must not become a business named Spencer Court
-louisville,"W MARKET ST//5TH ST, Louisville, KY",matched,intersection,South 5th Street,,,legacy matched 35th St
-louisville,"136 I65S, Louisville, KY",unmatched,,,,,interstate mile marker
-san_jose,"NB 280 TO NB 280 RP & NB 280 T, San Jose, CA",unmatched,,,,,legacy matched a POI named T
-san_jose,", San Jose, CA",unmatched,,,,,legacy returned the city centre
-san_jose,"SNELL AV & VTA PARK AND RIDE ACCESS, San Jose, CA",unmatched,,,,,a park-and-ride 16 km away
-cambridge,"Brattle St & Hawthorne St, Cambridge, MA",matched,intersection,Hawthorn Street,,,exact 'Hawthorne Street' exists only in other towns (second chance)
-cambridge,"0 Massachusetts Ave, Cambridge, MA",matched,block,Massachusetts Avenue,,,numbering restarts in Boston and Arlington; prefer the city
-cambridge,"Sennott Park & Broadway, Cambridge, MA",matched,poi,Sennott Park,,,park on an intersection
-norfolk,"8500 OCONNER CRES, Norfolk, VA",matched,block,Oconner Crescent,,,OSM street is 'O Connor Crescent'; addresses say Oconner
-saint_paul,"1395 LINCOLN AV, Saint Paul, MN",matched,interpolated,Lincoln Avenue,,,exact neighbours beat a block fallback elsewhere
-saint_paul,"1275 SUMMIT AV, Saint Paul, MN",matched,interpolated,Summit Avenue,,,two address points at both ends of a long block; since TIGER the exact number is placed within its range
-berkeley,"WA00 ST & DERBY ST, BERKELEY, CA",unmatched,,,,,Ward St and Derby St are parallel (84 m apart): not a near miss
-san_jose,"KENNEDY AV & NEWTON AV, San Jose, CA",unmatched,,,,,parallel streets 81 m apart
-san_jose,"PORTSWOOD CL & EARLSWOOD CT, San Jose, CA",matched,near_intersection,Earlswood Court,,,cul-de-sac ending 81 m from the other street
-san_jose,"EDEN AV & ONYX CT, San Jose, CA",matched,near_intersection,Onyx Court,,,short court beside the avenue (side by side)
-cambridge,"500 Broadway, Cambridge, MA",matched,block,Broadway,70082,1,street exists: never swap it for the Broadway subway stop in Boston (TIGER has Cambridge's 500 block)
-berkeley,"400 GILMAN, BERKELEY, CA",,,,924 Gilman,,street exists: never swap it for the 924 Gilman club
-norfolk,"700 WATERSIDE DR, Norfolk, VA",matched,block,Waterside Drive,,1,in-city evidence must not be dropped as a stray in favour of Hampton
-norfolk,"400 34TH ST, Norfolk, VA",matched,block,West 34th Street,,1,Norfolk's own W 34th St beats Virginia Beach's 34th St
-louisville,"300 3RD ST, Louisville, KY",matched,block,South 3rd Street,,1,in-city reading beats a 3rd Street 30 km away
-norfolk,"900 GORDON AV, Norfolk, VA",unmatched,,,Dordon,,no typo once the exact name exists
-cambridge,"1400 Mason St, Cambridge, MA",unmatched,,,,,Mason Street is numbered 4-18
-lincoln,"1700 GARFIELD ST, Lincoln, NE",,,,West Garfield Circle,,a contradicted street must not hand over to another short street
-saint_paul,"1715 COMO AV, Saint Paul, MN",,,,Southeast Como Avenue,,not the same-named street in Minneapolis
-louisville,"HALIFAX DR & OAK POINTE DR, Louisville, KY",unmatched,,,,,loop street meets Halifax Dr twice (~300 m apart)
-berkeley,"NB, BERKELEY, CA",unmatched,,,,,direction of travel only (crashed before)
-lincoln,"000000 4800 DORIS BAIR CR, Lincoln, NE",,,,,,zero padding before the house number (crashed number parsing)
+dataset,address,expect_status,expect_type,expect_name,forbid_name,expect_in_city,expect_tier,why
+berkeley,"UNIVERSITY AVE & 7TH ST, BERKELEY, CA",matched,intersection,Seventh Street,,,,legacy matched 67th St in Emeryville (substring match)
+berkeley,"4TH ST & JONES ST, BERKELEY, CA",matched,intersection,Fourth Street,,,,legacy matched a point in San Francisco
+berkeley,"6700 ST & SAN PABLO AVE, BERKELEY, CA",matched,intersection,67th Street,,,,redacted ordinal 67TH -> 6700
+berkeley,"400 ST & GILMAN ST, BERKELEY, CA",matched,intersection,Fourth Street,,,,redacted ordinal 4TH -> 400
+berkeley,"1300 9TH ST, BERKELEY, CA",matched,block,Ninth Street,,,,block from address points; OSM spells Ninth
+berkeley,"3500 DWIGHT WAY, BERKELEY, CA",matched,block,Dwight Way,,,,legacy put every Dwight Way block on one segment centroid
+berkeley,"1800 UNIVERSITY AVE 211, BERKELEY, CA",matched,block,University Avenue,,,,trailing unit number
+berkeley,"MARTIN LUTHER KING JR WAY & ADELINE ST, BERKELEY, CA",unmatched,,,,,,the two streets cross twice ~600 m apart
+berkeley,"NA, BERKELEY, CA",unmatched,,,,,,placeholder
+berkeley,"ASHBY AVE & I-80 HWY, BERKELEY, CA",unmatched,,,,,,interchange (policy)
+berkeley,"200 37.8696807843512;-122.319669759703, BERKELEY, CA",unmatched,,,,,,coordinates in text (policy)
+cambridge,"0 Eliot Cir, Cambridge, MA",,,,John Eliot Square,1,,"legacy matched John Eliot Square in Boston (now Eliot Street's 0 block in Cambridge: no Eliot Circle, the number picks the type)"
+cambridge,"White St & Porter Sq, Cambridge, MA",matched,poi,Porter Square,,,,named square on an intersection
+saint_paul,"7 ST E & ROBERT ST N, Saint Paul, MN",matched,intersection,7th Street East,,,,number is the street name
+saint_paul,"100 PARK AV, Saint Paul, MN",unmatched,,,,,,no Park Ave; eleven other Park streets
+norfolk,"3100, Norfolk, VA",unmatched,,,,,,legacy returned the city centre
+norfolk,"9000 1ST VIEW ST, Norfolk, VA",matched,block,First View Street,,,,ordinal spelled out in OSM
+norfolk,"700 LITTLE CREEK RD, Norfolk, VA",unmatched,,,,,,both E and W Little Creek Rd have a 700 block
+norfolk,"8100 DIVEN ARCH AND 8100 NORFOLK CROSSING, Norfolk, VA",matched,intersection,Diven Arch,,,,two addresses joined by AND
+lincoln,"S 14TH & K-L, Lincoln, NE",matched,between,South 14th Street,,,,Lincoln between-notation
+lincoln,"5900 CORNHUSKER ST, Lincoln, NE",matched,block,Cornhusker Highway,,,,LPD writes ST for any type
+lincoln,"48TH AND LEIGHTON ST, Lincoln, NE",matched,intersection,Leighton Avenue,,,,must not become 'Leighton Street Car Wash'
+lincoln,"HWY 77 & I-80, Lincoln, NE",unmatched,,,,,,interchange (policy)
+virginia_beach,"7TH ST & PACIFIC AVE, Virginia Beach, VA",matched,intersection,7th Street,,,,legacy matched 27th St
+virginia_beach,"NORFOLK AVE & SPENCER CT, Virginia Beach, VA",unmatched,,,,,,must not become a business named Spencer Court
+louisville,"W MARKET ST//5TH ST, Louisville, KY",matched,intersection,South 5th Street,,,,legacy matched 35th St
+louisville,"136 I65S, Louisville, KY",unmatched,,,,,,interstate mile marker
+san_jose,"NB 280 TO NB 280 RP & NB 280 T, San Jose, CA",unmatched,,,,,,legacy matched a POI named T
+san_jose,", San Jose, CA",unmatched,,,,,,legacy returned the city centre
+san_jose,"SNELL AV & VTA PARK AND RIDE ACCESS, San Jose, CA",unmatched,,,,,,a park-and-ride 16 km away
+cambridge,"Brattle St & Hawthorne St, Cambridge, MA",matched,intersection,Hawthorn Street,,,,exact 'Hawthorne Street' exists only in other towns (second chance)
+cambridge,"0 Massachusetts Ave, Cambridge, MA",matched,block,Massachusetts Avenue,,,,numbering restarts in Boston and Arlington; prefer the city
+cambridge,"Sennott Park & Broadway, Cambridge, MA",matched,poi,Sennott Park,,,,park on an intersection
+norfolk,"8500 OCONNER CRES, Norfolk, VA",matched,block,Oconner Crescent,,,,OSM street is 'O Connor Crescent'; addresses say Oconner
+saint_paul,"1395 LINCOLN AV, Saint Paul, MN",matched,interpolated,Lincoln Avenue,,,,exact neighbours beat a block fallback elsewhere
+saint_paul,"1275 SUMMIT AV, Saint Paul, MN",matched,interpolated,Summit Avenue,,,,two address points at both ends of a long block; since TIGER the exact number is placed within its range
+berkeley,"WA00 ST & DERBY ST, BERKELEY, CA",unmatched,,,,,,Ward St and Derby St are parallel (84 m apart): not a near miss
+san_jose,"KENNEDY AV & NEWTON AV, San Jose, CA",unmatched,,,,,,parallel streets 81 m apart
+san_jose,"PORTSWOOD CL & EARLSWOOD CT, San Jose, CA",matched,near_intersection,Earlswood Court,,,,cul-de-sac ending 81 m from the other street
+san_jose,"EDEN AV & ONYX CT, San Jose, CA",matched,near_intersection,Onyx Court,,,,short court beside the avenue (side by side)
+cambridge,"500 Broadway, Cambridge, MA",matched,block,Broadway,70082,1,,street exists: never swap it for the Broadway subway stop in Boston (TIGER has Cambridge's 500 block)
+berkeley,"400 GILMAN, BERKELEY, CA",,,,924 Gilman,,,street exists: never swap it for the 924 Gilman club
+norfolk,"700 WATERSIDE DR, Norfolk, VA",matched,block,Waterside Drive,,1,,in-city evidence must not be dropped as a stray in favour of Hampton
+norfolk,"400 34TH ST, Norfolk, VA",matched,block,West 34th Street,,1,,Norfolk's own W 34th St beats Virginia Beach's 34th St
+louisville,"300 3RD ST, Louisville, KY",matched,block,South 3rd Street,,1,,in-city reading beats a 3rd Street 30 km away
+norfolk,"900 GORDON AV, Norfolk, VA",matched,,Gordon Street,Dordon,,B,"no typo (Dordon Street) once the exact name exists; no Gordon Avenue, and only Gordon Street has the 900 block"
+cambridge,"1400 Mason St, Cambridge, MA",unmatched,,,,,,Mason Street is numbered 4-18
+lincoln,"1700 GARFIELD ST, Lincoln, NE",,,,West Garfield Circle,,,a contradicted street must not hand over to another short street
+saint_paul,"1715 COMO AV, Saint Paul, MN",,,,Southeast Como Avenue,,,not the same-named street in Minneapolis
+louisville,"HALIFAX DR & OAK POINTE DR, Louisville, KY",unmatched,,,,,,loop street meets Halifax Dr twice (~300 m apart)
+berkeley,"NB, BERKELEY, CA",unmatched,,,,,,direction of travel only (crashed before)
+lincoln,"000000 4800 DORIS BAIR CR, Lincoln, NE",,,,,,,zero padding before the house number (crashed number parsing)
+berkeley,"2400 PIEDMONT, BERKELEY, BERKELEY, CA",matched,block,Piedmont Avenue,,,A,city name repeated as an extra piece
+berkeley,"2100 CENTER & OXFORD ST, BERKELEY, CA",matched,intersection,Center Street,,,A,no 21st Center: the redacted 2100 is a house number
+berkeley,"00 ROY AVE & VIRGINIA ST, BERKELEY, CA",matched,intersection,Le Roy Avenue,,,B,00 is the redacted LE of Le Roy
+berkeley,"1600 MARTIN LUTHER KING JR94709 WAY, BERKELEY, CA",matched,block,Martin Luther King Junior Way,,,A,ZIP code run into the name
+berkeley,"1600 8 TH, BERKELEY, CA",matched,block,Eighth Street,,,A,ordinal written as 8 TH
+berkeley,"2100 DWIGHT 417, BERKELEY, CA",matched,block,Dwight Way,,,A,unit number after a name without its type
+berkeley,"DER00 AND MLK, BERKELEY, CA",matched,intersection,Martin Luther King Junior Way,,,A,MLK without JR
+berkeley,"00 OAK RIDGE, BERKELEY, CA",matched,block,Oak Ridge Road,Oak Street,,A,RIDGE is part of the name; a changed type on Oak Street is a worse reading
+berkeley,"1600 CEDAR ST, BERKELEY, CA",matched,block,Cedar Street,,1,B,25 address points against 1 stray point 870 m away
+berkeley,"100 SEAWALL DR, BERKELEY, CA",unmatched,,,,,,one address point in each of two places 524 m apart
+berkeley,"1400 ACTON, BERKELEY, CA",unmatched,,,,,,Acton Street and Acton Crescent both have a 1400 block
+berkeley,"2100 SHATTUCK BLVD, BERKELEY, CA",matched,block,Shattuck Avenue,Shattuck Place,,B,no Shattuck Blvd; only Shattuck Avenue has the number
+berkeley,"PIEDMONT CIR & DWIGHT WAY, BERKELEY, CA",matched,intersection,Dwight Way,,1,B,no Piedmont Circle; Piedmont Avenue and Crescent meet Dwight Way at one junction
+cambridge,"Green St & Magazine Beach, Cambridge, MA",,,,Magazine Street,,,a beach is not a street type to swap
+cambridge,"Massachusetts Ave & Harvard Bridge, Cambridge, MA",,,,Harvard Street,,,a bridge is not a street type to swap
+lincoln,"77 HWY S & W VAN DORN;JN, Lincoln, NE",,,,77th Place,,,a highway's type is never changed
+saint_paul,"1845 LINCOLN AV, Saint Paul, MN",,,,Northeast Lincoln Street,,,not a same-named street of another type in Minneapolis
+san_jose,"VISTAGLEN DR & BERONA WY, San Jose, CA",matched,,Vista Glen Drive,Vistaglen Court,,,the spacing reading keeps the record's type
+virginia_beach,"2700 BLUEBILL DR, Virginia Beach, VA",matched,,Bluebill Road,,,,Blue Bill Drive keeps the record's type but has no 2700 block; the number decides
+san_jose,"450 RYLAND PARK, San Jose, CA",matched,poi,Ryland Park,,,C,"the park, not Ryland Park Drive (no 450 there): a place-like name read as a longer street name is a guess"

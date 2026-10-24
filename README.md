@@ -6,8 +6,9 @@ to census geographies.
 
 The geocoder is the `nomgeo` package. It matches each record against the streets,
 address points and house-number ranges that exist in the police department's area, and
-labels every result with what was matched and how precise it is. Records that are not
-addresses, or that fit more than one place, stay uncoded with a stated reason.
+labels every result with what was matched, how precise it is, and how much interpretation
+it needed (tier A, B or C). Records that are not addresses, or that fit more than one place,
+stay uncoded with a stated reason.
 
 Full documentation: [`docs/geocoding.qmd`](docs/geocoding.qmd) (rendered as `docs/geocoding.html`).
 

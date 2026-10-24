@@ -58,6 +58,8 @@ class Regression(unittest.TestCase):
                     self.assertNotIn(case["forbid_name"], row.get("matched") or "", f"{case['why']} -> {row}")
                 if case.get("expect_in_city"):
                     self.assertEqual(str(row.get("in_city")), case["expect_in_city"], f"{case['why']} -> {row}")
+                if case.get("expect_tier"):
+                    self.assertEqual(row.get("tier"), case["expect_tier"], f"{case['why']} -> {row}")
 
 
 if __name__ == "__main__":

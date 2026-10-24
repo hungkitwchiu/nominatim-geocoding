@@ -124,6 +124,13 @@ SUFFIX_OPTIONS = {k: frozenset(v) for k, v in SUFFIX_OPTIONS.items()}
 # of a name.  They still canonicalise inside the base (both sides alike).
 CANONICAL_TOKEN = {tok: next(iter(stds)) for tok, stds in SUFFIX_OPTIONS.items() if len(stds) == 1}
 
+# Types that say no more than "a road": a record can give the wrong one without meaning a
+# different street.  Words that name a kind of place (SQ, PARK, BCH, BRG, HL, LNDG, XING ...)
+# are not among them.  A record's type may be changed *to* a highway type, never *from* one.
+ROAD_TYPES = frozenset({"ST", "STS", "AVE", "BLVD", "RD", "DR", "LN", "CT", "PL", "CIR", "CRES", "WAY",
+                        "TER", "PKWY", "TRL", "LOOP", "ALY", "ROW", "WALK", "PATH", "CV", "RUN"})
+HIGHWAY_TYPES = frozenset({"HWY", "FWY", "EXPY", "TPKE", "PIKE", "BYP"})
+
 # Suffixes after which a bare number is an ordinal ("N 27 ST" -> "N 27TH ST").
 _ORDINAL_CONTEXT = {"ST", "AVE", "PL", "TER", "CT", "DR", "LN", "WAY", "BLVD", "CIR", "RD",
                     "ALY", "TRL", "PKWY", "SQ", "LOOP", "VW", "PATH"}
@@ -303,6 +310,8 @@ def _canonical_base(tokens: list[str]) -> tuple[list[str], list[str]]:
         else:
             expanded.append(t)
     toks = expanded
+    # A generational suffix is often left out ("MLK WAY" = Martin Luther King Jr Way).
+    toks = [t for i, t in enumerate(toks) if not (i >= 2 and t in ("JR", "SR"))]
     if len(toks) >= 2 and toks[0] in _LEADING_EXPANSIONS:
         toks = [_LEADING_EXPANSIONS[toks[0]]] + toks[1:]
     if len(toks) == 1 and toks[0].isdigit() and int(toks[0]) < 500:
