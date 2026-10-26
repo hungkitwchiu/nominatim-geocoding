@@ -2,6 +2,7 @@
 *_address.csv
 *_geocoded_matches.csv
 *_geocoded_unmatched.csv
+*_Esri_geocoded.csv
 data/
 outputs/
 

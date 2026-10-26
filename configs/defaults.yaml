@@ -37,7 +37,7 @@ precision:
   dominant_ratio: 5                 # a block found in several places on one street: a place in the city with
   dominant_minority_max: 4          # this many times the evidence of all others wins, if none has more points than this
   max_precision_m: 250              # final gate: nothing vaguer than this is accepted
-  fuzzy_min_length: 5               # no typo tolerance for names shorter than this
+  fuzzy_min_length: 4               # no typo tolerance for names shorter than this (4: one edit, confirmed by a number or crossing only)
   max_penalty: 6                    # most relaxation allowed per street (see the documentation)
 
 # Record types to geocode when the match is unambiguous.

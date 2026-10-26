@@ -16,11 +16,11 @@ import shapely
 from shapely.ops import linemerge, nearest_points
 from shapely.strtree import STRtree
 
-from .resolve import Candidate
+from .resolve import WEAK_RELAXATIONS, Candidate
 from .streets import MOTORWAY_TYPES, AreaIndex, Cluster
 
 KIND_RANK = {"house": 0, "interpolated": 1, "block": 1, "intersection": 0, "near_intersection": 1,
-             "between": 1, "street": 2}
+             "between": 1, "dead_end": 1, "street": 2}
 
 
 @dataclass(frozen=True)
@@ -327,7 +327,8 @@ def locate_number(cands: list[Candidate], number: int, mode: str, index: AreaInd
     names = "/".join(sorted({c.entry.display for c in cands})[:3])
     if locs:
         loc, reason = choose(locs, ds, "street/number")
-        if loc is None or loc.in_core or index.core is None:
+        # (A record that names the town, "350 S ABEL IN MILPITAS", means the street there.)
+        if loc is None or loc.in_core or index.core is None or "town_removed" in loc.flags:
             return loc, reason
         # The evidence lies outside the city.  If the record's street also exists inside the
         # city, the record means that street and its block is just missing from the data:
@@ -350,6 +351,9 @@ def locate_number(cands: list[Candidate], number: int, mode: str, index: AreaInd
                       f"(a same-named street outside the city has it)")
     if all(_motorway_entry(index, c.entry) for c in cands):
         return None, "address on a motorway"
+    ext = _extrapolate(cands, number, mode, index, ds)
+    if ext:
+        return ext, None
     # No evidence for this number: fall back to a short street, but only when the street the
     # record most likely means does not contradict it ("1400 MASON ST" is not on a Mason Street
     # numbered 4-18, and must not move to some other short street instead).
@@ -377,10 +381,110 @@ def _number_plausible(index: AreaIndex, entry, number: int, margin: int = 100) -
     return not known or min(known) - margin <= number <= max(known) + margin
 
 
+def _extrapolate(cands: list[Candidate], number: int, mode: str, index: AreaIndex, ds):
+    """A number just past the known numbers of its street, placed one block beyond them.
+
+    The street must be one stretch in the city, named as written (no typo or changed type),
+    with known numbers in at least two blocks so that the direction of numbering is known.
+    The point lies 100 m beyond the centre of the last known block along the street, or at the
+    street's end if that comes first; precision 100 m.  Esri labels the same inference
+    "StreetAddressExt".
+    """
+    best = min(c.penalty for c in cands)
+    top = [c for c in cands if c.penalty == best]
+    if any(WEAK_RELAXATIONS & set(c.flags) for c in top):
+        return None
+    stretches = [(c, cl) for c in top for cl in index.clusters(c.entry) if cl.in_core]
+    if len(stretches) != 1:
+        return None
+    c, cl = stretches[0]
+    pts = []
+    for s in cl.segs:
+        pid = index.seg_place[s]
+        pts += list(index.points.get(pid, ()))
+        for a, b, _step, line, _src in index.ranges.get(pid, ()):
+            pts += [(a, *line.coords[0]), (b, *line.coords[-1])]
+    if len(pts) < 2:
+        return None
+    lo, hi = min(p[0] for p in pts), max(p[0] for p in pts)
+    reach = 199 if mode == "hundred_block" else 100
+    if hi < number <= hi + reach:
+        edge_n = hi
+    elif lo - reach <= number < lo:
+        edge_n = lo
+    else:
+        return None
+    edge = [p for p in pts if abs(p[0] - edge_n) <= 99]
+    rest = [p for p in pts if abs(p[0] - edge_n) > 99]
+    if not rest:
+        return None
+    # From the centre of the other known numbers through the centre of the last known block,
+    # 100 m further on, snapped to the street; where the street ends first, its end.
+    ex, ey = sum(p[1] for p in edge) / len(edge), sum(p[2] for p in edge) / len(edge)
+    rx, ry = sum(p[1] for p in rest) / len(rest), sum(p[2] for p in rest) / len(rest)
+    d = math.hypot(ex - rx, ey - ry)
+    if d < 20.0:
+        return None
+    target = shapely.Point(ex + 100.0 * (ex - rx) / d, ey + 100.0 * (ey - ry) / d)
+    p = nearest_points(cl.geom, target)[0]
+    if p.distance(target) > 150.0:
+        return None                      # the street does not go that way
+    return Location(p.x, p.y, "block", 100.0, "osm_geometry", (c.entry.display,),
+                    c.flags + ("extrapolated",), c.penalty, index.in_core(p.x, p.y),
+                    f"{number} is just past the known numbers {lo}-{hi}: "
+                    f"{math.hypot(p.x - ex, p.y - ey):.0f} m beyond the last known block")
+
+
 # ------------------------------------------------------------------------ street only
 # Relaxations too weak to stand on their own: with no house number or crossing to confirm
 # them, they could name a different street.
-WEAK_FLAGS = {"type_changed", "typo_2", "bare_route_number", "route_number"}
+WEAK_FLAGS = {"type_changed", "typo_2", "typo_short", "leading_word_added", "bare_route_number", "route_number"}
+
+
+def _free_ends(index: AreaIndex, cl: Cluster) -> list[tuple[float, float]]:
+    """Ends of a street that touch no other street (none within 15 m), away from the search
+    box's edge; ends of pieces that meet another piece of the same street do not count."""
+    keys = set().union(*[index.seg_keys[s] for s in cl.segs])
+    merged = linemerge(cl.geom) if cl.geom.geom_type == "MultiLineString" else cl.geom
+    pieces = list(getattr(merged, "geoms", [merged]))
+    left, top, right, bottom = index.bbox
+    x0, y0 = index.proj.point(left, bottom)
+    x1, y1 = index.proj.point(right, top)
+    free: list = []
+    for piece in pieces:
+        for xy in (piece.coords[0], piece.coords[-1]):
+            e = shapely.Point(xy)
+            if min(e.x - x0, x1 - e.x, e.y - y0, y1 - e.y) < 100.0:
+                continue
+            if any(other is not piece and other.distance(e) <= 1.0 for other in pieces):
+                continue
+            near = [i for i in index.tree().query(e.buffer(15.0))
+                    if not (index.seg_keys[i] & keys) and index.seg_geom[i].distance(e) <= 15.0]
+            if not near and not any(e.distance(f) <= 15.0 for f in free):
+                free.append(e)
+    return [(f.x, f.y) for f in free]
+
+
+def locate_dead_end(cands: list[Candidate], index: AreaIndex, ds):
+    """"X & DEAD END": the free end of street X, when it has exactly one."""
+    strong = [c for c in cands if not WEAK_FLAGS & set(c.flags)]
+    if not strong:
+        return None, None
+    best = min(c.penalty for c in strong)
+    stretches = [(c, cl) for c in strong if c.penalty == best for cl in index.clusters(c.entry)]
+    core = [t for t in stretches if t[1].in_core] or stretches
+    if len(core) != 1:
+        return None, f"ambiguous street: {len(core)} separate streets with this name"
+    c, cl = core[0]
+    ends = _free_ends(index, cl)
+    if len(ends) == 1:
+        x, y = ends[0]
+        return Location(x, y, "dead_end", 30.0, "osm_geometry", (c.entry.display,),
+                        c.flags + ("at_dead_end",), c.penalty, index.in_core(x, y),
+                        "the street's one free end"), None
+    if not ends:
+        return None, None
+    return None, f"{len(ends)} dead ends on {c.entry.display}"
 
 
 def locate_street(cands: list[Candidate], index: AreaIndex, ds, flag: str = "street_only"):
@@ -594,6 +698,8 @@ def locate_intersection(cands_a: list[Candidate], cands_b: list[Candidate], inde
                     continue           # a type picked among several needs the crossing in the city
                 spread = max(math.hypot(x - cx, y - cy) for x, y in zip(xs, ys))
                 kind = group[0][2]
+                if kind != "intersection" and "typo_short" in ca.flags + cb.flags:
+                    continue              # a four-letter typo needs a real crossing, not a near miss
                 gap = min(p[3] for p in group)
                 stretch = max(p[6] for p in group)
                 motorway = any(index.seg_type[p[4]] in MOTORWAY_TYPES or

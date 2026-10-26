@@ -71,3 +71,25 @@ saint_paul,"1845 LINCOLN AV, Saint Paul, MN",,,,Northeast Lincoln Street,,,not a
 san_jose,"VISTAGLEN DR & BERONA WY, San Jose, CA",matched,,Vista Glen Drive,Vistaglen Court,,,the spacing reading keeps the record's type
 virginia_beach,"2700 BLUEBILL DR, Virginia Beach, VA",matched,,Bluebill Road,,,,Blue Bill Drive keeps the record's type but has no 2700 block; the number decides
 san_jose,"450 RYLAND PARK, San Jose, CA",matched,poi,Ryland Park,,,C,"the park, not Ryland Park Drive (no 450 there): a place-like name read as a longer street name is a guess"
+san_jose,"SARK WY & AMBLER CT, San Jose, CA",matched,intersection,Ambler Way,,1,B,no crossing with Ambler Ct; Ambler Way of the same name crosses Sark Way (type-swap second chance)
+san_jose,"MT ISABEL DR & STEVENS CT, San Jose, CA",matched,intersection,Stevens Lane,,1,B,type-swap second chance
+san_jose,"850 AT THE ALAMEDA, San Jose, CA",matched,block,The Alameda,,,A,'<number> AT <street>' is block 850 on the street
+san_jose,"MONTEREY RD & N OF LEWIS, San Jose, CA",matched,intersection,Lewis Road,,,B,'N OF' offset: on Monterey Rd north of Lewis Rd
+san_jose,"WARBURTON & NOBILI IN SANTA CLARA, San Jose, CA",matched,intersection,Nobili Avenue,,0,A,a town name after the street; the crossing is in Santa Clara
+san_jose,"350 S ABEL IN MILPITAS, San Jose, CA",matched,block,South Abel Street,,0,A,a town name after the street allows the evidence outside the city
+san_jose,"HIGUERA RD & DEAD END, San Jose, CA",matched,dead_end,Higuera Road,,,B,placed at the street's one free end
+berkeley,"2500 BOWDITCH ST, BERKELEY, CA",matched,block,Bowditch Street,,1,C,one block past the known numbers 2300-2499 (extrapolated)
+berkeley,"2900 MILVIA ST, BERKELEY, CA",matched,block,Milvia Street,,1,C,extrapolated past 2899 along a long street
+berkeley,"100 MARINA BLVD, BERKELEY, CA",unmatched,,,,,,"one known block only: the direction of numbering is unknown, no extrapolation"
+san_jose,"BIRD AV & BUSHESER WY, San Jose, CA",matched,intersection,Buchser Way,,,C,"two edits in an 8-letter name, confirmed by the crossing"
+san_jose,"150 KEYS ST, San Jose, CA",matched,block,Keyes Street,,,C,"one edit in a 4-letter name, confirmed by the block; KEYS is also a type word"
+san_jose,"3550 CEDAR DALE, San Jose, CA",matched,block,Cedardale Drive,,,A,a type-like last word that belongs to the name
+san_jose,"NIEMANBL & WENDOVER LN, San Jose, CA",matched,intersection,Nieman Boulevard,,,A,a type abbreviation fused to the name
+san_jose,"CINCO DE MAYO & CROPLEY, San Jose, CA",matched,intersection,Via Cinco De Mayo,,,B,the first word of the name was left out
+san_jose,"AVENUE B & MADDEN AV, San Jose, CA",unmatched,,,Avenue C,,,Esri substituted Avenue C; no second chance invents a street
+san_jose,"HOME GATE DR & HOME GATE DR, San Jose, CA",unmatched,,,Agate,,,the same street twice is not an intersection of two Agate streets (Esri)
+san_jose,"S 23RD ST & S 24TH ST, San Jose, CA",unmatched,,,,,,"parallel streets 94 m apart, side by side for 1.4 km: no near miss"
+san_jose,"850 SALT CREEK CT, San Jose, CA",,,,Salt Lake,,,"SALT CRK and SALT LK are two edits apart in the keys, but Creek and Lake are not"
+louisville,"100 SHELBY STATION DR, Louisville, KY",,,,Shelby Point,,,Station (STA) is not Point (PT): words both abbreviated are compared as written
+lincoln,"1600 W PLEASANT DALE RD, Lincoln, NE",,,,Pleasant Hill,,,Dale (DL) is not Hill (HL)
+saint_paul,"705 CHEROKEEHTS BD, Saint Paul, MN",matched,,Cherokee Heights Boulevard,,,B,"a fused abbreviated name, one edit from CHEROKEE HTS"

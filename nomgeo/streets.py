@@ -116,6 +116,8 @@ class AreaIndex:
         self.by_prefix_form: dict[str, set[str]] = {}
         self.by_ref: dict[tuple[str, str], set[str]] = {}
         self.first_tokens: set[str] = set()
+        self.by_tail: dict[str, set[str]] = {}       # name without its first word -> base names
+        self.towns: set[str] = set()                 # cities, towns and villages in the box
         self.points: dict[int, list[tuple[int, float, float]]] = {}
         self.ranges: dict[int, list[tuple[int, int, int, object, str]]] = {}
         self.place_to_seg: dict[int, int] = {}
@@ -157,6 +159,14 @@ class AreaIndex:
                         idx._add_name(value.strip(), seg, alt=(k != "name"))
             for net, num in parse_osm_ref(names.get("ref") or ""):
                 idx._add_ref(net, num, seg)
+        with conn.cursor() as cur:
+            # Towns in the box, for records that append one ("350 S ABEL IN MILPITAS").
+            cur.execute(
+                """SELECT DISTINCT name->'name' FROM placex
+                    WHERE class = 'place' AND type IN ('city', 'town', 'village') AND name ? 'name'
+                      AND geometry && ST_MakeEnvelope(%s, %s, %s, %s, 4326)""",
+                (left, bottom, right, top))
+            idx.towns = {clean(n) for (n,) in cur.fetchall() if clean(n)}
         idx._load_numbers(conn)
         return idx
 
@@ -173,6 +183,8 @@ class AreaIndex:
             base_squash = "".join(sn.raw[1:] if sn.predir else sn.raw)
             self.by_squash_base.setdefault(base_squash, set()).add(key)
             self.by_prefix_form.setdefault(prefix_form(display), set()).add(key)
+            if len(sn.base) >= 2:
+                self.by_tail.setdefault(" ".join(sn.base[1:]), set()).add(sn.base_key)
             toks = clean(display).split()
             if toks:
                 self.first_tokens.add(toks[0])

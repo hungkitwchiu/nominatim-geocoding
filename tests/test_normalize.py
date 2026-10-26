@@ -140,9 +140,34 @@ class ParseRecord(unittest.TestCase):
         self.assertEqual(r.kind, HIGHWAY)
 
     def test_san_jose_offset(self):
-        r = parse_record("VINE ST S & O GOODYEAR ST, San Jose, CA", ds())
-        self.assertEqual(r.streets, ["VINE ST", "GOODYEAR ST"])
-        self.assertIn("offset_of_intersection", r.flags)
+        for raw, streets in [("VINE ST S & O GOODYEAR ST, San Jose, CA", ["VINE ST", "GOODYEAR ST"]),
+                             ("S 5TH N & OF KEYES ST, San Jose, CA", ["S 5TH", "KEYES ST"]),
+                             ("ALMA & W OF MONTEREY, San Jose, CA", ["ALMA", "MONTEREY"]),
+                             ("MONTEREY RD N OF LEWIS, San Jose, CA", ["MONTEREY RD", "LEWIS"])]:
+            r = parse_record(raw, ds())
+            self.assertEqual((r.kind, r.streets), (INTERSECTION, streets), raw)
+            self.assertIn("offset_of_intersection", r.flags, raw)
+        # "OF" inside a name, or after a number with no street before it, is not an offset.
+        r = parse_record("2950 VALLEY OF HEARTS DELIGHT PL, San Jose, CA", ds())
+        self.assertEqual((r.number, r.streets), (2950, ["VALLEY OF HEARTS DELIGHT PL"]))
+        self.assertNotIn("offset_of_intersection", parse_record("50 NB S OF ALMADEN, San Jose, CA", ds()).flags)
+
+    def test_san_jose_number_at_street(self):
+        for raw, number, street in [("150 AT BLOSSOM HILL, San Jose, CA", 150, "BLOSSOM HILL"),
+                                    ("250 NB AT MERIDIAN, San Jose, CA", 250, "MERIDIAN"),
+                                    ("1300 BLK OF AIRPORT, San Jose, CA", 1300, "AIRPORT")]:
+            r = parse_record(raw, ds())
+            self.assertEqual((r.kind, r.number, r.streets), (ADDRESS, number, [street]), raw)
+        r = parse_record("50 ST AT 280, San Jose, CA", ds())          # a street "at" another
+        self.assertEqual((r.kind, r.streets), (INTERSECTION, ["50 ST", "280"]))
+
+    def test_dead_end(self):
+        r = parse_record("MARTWOOD WY & DEAD END, San Jose, CA", ds())
+        self.assertEqual((r.kind, r.streets, r.dead_end), (STREET, ["MARTWOOD WY"], True))
+        r = parse_record("DEAD END & E ALMA AV, San Jose, CA", ds())
+        self.assertEqual((r.streets, r.dead_end), (["E ALMA AV"], True))
+        r = parse_record("A ST & DEAD END & B ST, San Jose, CA", ds())
+        self.assertEqual((r.kind, r.dead_end), (INTERSECTION, False))
 
 
 if __name__ == "__main__":

@@ -22,11 +22,11 @@ from .area import load_area
 from .cache import KVCache
 from .config import Dataset
 from .db import connect, data_version
-from .locate import Location, locate_intersection, locate_number, locate_street
+from .locate import Location, locate_dead_end, locate_intersection, locate_number, locate_street
 from .nominatim import NominatimClient, find_poi
 from .normalize import split_street
 from .parse import (ADDRESS, BETWEEN, COORDINATES, INTERSECTION, STREET, Record, parse_record)
-from .resolve import resolve, resolve_typo
+from .resolve import resolve, resolve_other_types, resolve_typo
 
 LOG = logging.getLogger(__name__)
 
@@ -37,9 +37,9 @@ OUTPUT_FIELDS = ["address", "status", "match_type", "tier", "lat", "lon", "preci
 # the evidence.  C: nothing confirms the reading.
 TIER_B_FLAGS = {"typo_1", "type_changed", "redacted", "truncated", "trailing_text", "second_chance",
                 "alt_name", "route_number", "dominant_evidence", "block_of_exact_number",
-                "between_known_numbers", "offset_of_intersection"}
-TIER_C_FLAGS = {"typo_2", "bare_route_number", "number_not_found", "number_on_first_street",
-                "cross_street_ignored", "extra_street_ignored"}
+                "between_known_numbers", "offset_of_intersection", "leading_word_added", "at_dead_end"}
+TIER_C_FLAGS = {"typo_2", "typo_short", "bare_route_number", "number_not_found", "number_on_first_street",
+                "cross_street_ignored", "extra_street_ignored", "extrapolated"}
 # Types that usually name a place rather than a street ("JEFFERSON PARK", "CENTRAL SQ"):
 # never swap them for a different street type.
 PLACE_TYPES = {"PARK", "PLZ", "SQ", "CTR", "MALL", "STA", "CMN", "CMNS", "GRN", "CRSE", "CLB"}
@@ -212,14 +212,19 @@ def _single(rec, text, number, index, ds, mode, client):
         if number is not None:
             loc, reason = locate_number(cands, number, mode, index, ds)
         else:
-            loc, reason = locate_street(cands, index, ds)
+            loc, reason = locate_dead_end(cands, index, ds) if rec.dead_end else (None, None)
+            if loc is None:
+                loc, reason2 = locate_street(cands, index, ds)
+                reason = reason or reason2
         if loc:
             return loc, None, ()
         # The street exists, so never swap it for a place that shares its name
         # ("500 BROADWAY" is not the Broadway subway stop, "400 GILMAN" not "924 Gilman").
-        # A place-like name that fits a street only with a word added or its type changed is a
-        # guess, though: "450 RYLAND PARK" is not on Ryland Park Drive, so the park is tried.
-        if not (_poi_allowed(text, ds) and all({"type_as_name", "type_changed"} & set(c.flags) for c in cands)):
+        # A place-like name that fits a street only with a word added, its type changed or a
+        # weak typo is a guess, though: "450 RYLAND PARK" is not on Ryland Park Drive, so the
+        # park is tried.
+        guesses = {"type_as_name", "type_changed", "typo_2", "typo_short"}
+        if not (_poi_allowed(text, ds) and all(guesses & set(c.flags) for c in cands)):
             return None, reason, ()
     else:
         reason = f"street not found: {text}"
@@ -250,17 +255,42 @@ def _intersection(rec, index, ds, mode, client):
             if loc or (reason and "ambiguous" in reason):
                 break
         if loc is None and reason and reason.startswith("streets do not meet") and len(found) == 2:
-            # Second chance: a one-letter variant of either name that does cross the other
-            # street (Cambridge "HAWTHORNE ST" = Hawthorn Street; the exact name is elsewhere).
+            # Second chances, each accepted only if the streets then really cross: a same-named
+            # street of another road type ("STEVENS CT & MT ISABEL DR": Stevens Lane crosses
+            # Mount Isabel Drive), and a one-letter variant of either name (Cambridge
+            # "HAWTHORNE ST" = Hawthorn Street; the exact name is elsewhere).
             (pa, ca), (pb, cb) = found
+            second, ambiguous = [], None
+            alt_a = resolve_other_types(pa, index, ds, {c.entry.key for c in ca}, {c.entry.name.base_key for c in cb})
+            alt_b = resolve_other_types(pb, index, ds, {c.entry.key for c in cb}, {c.entry.name.base_key for c in ca})
+            if alt_a or alt_b:
+                loc2, why2 = locate_intersection(ca + alt_a, cb + alt_b, index, ds)
+                if loc2 and loc2.match_type == "intersection" and loc2.in_core:
+                    second.append(loc2)
+                elif why2 and "ambiguous" in why2:
+                    ambiguous = why2 + " (with a changed type)"
             for ta, tb in ((resolve_typo(pa, index, ds), cb), (ca, resolve_typo(pb, index, ds))):
                 if not ta or not tb:
                     continue
                 loc2, _ = locate_intersection(ta, tb, index, ds)
                 if loc2 and loc2.match_type == "intersection":
-                    loc, reason = loc2, None
-                    extra = ("second_chance",)
+                    second.append(loc2)
                     break
+            merge_m = float(ds.precision.get("intersection_merge_m", 60))
+            if ambiguous:
+                reason = ambiguous
+            elif len(second) == 1 or (len(second) == 2 and math.hypot(
+                    second[0].x - second[1].x, second[0].y - second[1].y) <= merge_m):
+                loc, reason, extra = second[0], None, ("second_chance",)
+            elif second:
+                reason = "ambiguous intersection: a changed type and a one-letter variant cross in different places"
+        if loc is not None and rec.number is not None and sides[0][1] \
+                and {"typo_2", "typo_short", "second_chance"} & set(loc.flags):
+            # "300 OLD HARRODS CREEK RD / CHURCH RD": the number on the first street is better
+            # evidence than a guessed cross street that lies somewhere else.
+            loc2, _ = locate_number(sides[0][1], rec.number, mode, index, ds)
+            if loc2 and loc2.match_type != "street" and math.hypot(loc2.x - loc.x, loc2.y - loc.y) > 150.0:
+                loc, extra = loc2, ("number_on_first_street",)
         if len(sides) > 2 and loc:
             extra = extra + ("extra_street_ignored",)
     elif len(found) == 1 and len(rec.streets) >= 2:

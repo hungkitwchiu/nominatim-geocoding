@@ -13,7 +13,7 @@ from pathlib import Path
 from .config import load_dataset
 from .pipeline import reason_group
 
-TYPES = ["house", "interpolated", "block", "between", "intersection", "near_intersection", "street", "poi"]
+TYPES = ["house", "interpolated", "block", "between", "intersection", "near_intersection", "dead_end", "street", "poi"]
 TIERS = ["A", "B", "C"]
 LABEL = {"berkeley": "Berkeley", "cambridge": "Cambridge", "lincoln": "Lincoln", "louisville": "Louisville",
          "norfolk": "Norfolk", "san_jose": "San Jose", "saint_paul": "Saint Paul",

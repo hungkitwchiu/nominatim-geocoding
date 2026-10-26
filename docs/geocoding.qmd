@@ -251,6 +251,13 @@ removes a ZIP code run into a name (`MARTIN LUTHER KING JR94709 WAY`), and joins
 written apart (`1600 8 TH` = 8th; `S 33 RD CIRC` = 33rd Circle, while `N 33 RD` is left as
 written because it can mean 33 Road).
 
+Three San Jose habits are read as the department means them: `150 AT BLOSSOM HILL` is block
+150 on Blossom Hill Road (flag `at_removed`), not an intersection; `S 5TH N & OF KEYES ST`,
+`ALMA & W OF MONTEREY` and `MONTEREY RD N OF LEWIS`, like `VINE ST S & O GOODYEAR ST`, mean
+"on the first street, north (west, south) of the second" and are placed at that junction
+with a precision of at least 100 m (flag `offset_of_intersection`); and `MARTWOOD WY & DEAD
+END` means the dead end of Martwood Way (@sec-locate).
+
 Where a department's redaction can be read two ways (Berkeley, `redacted_first_token`), the
 second reading is tried when the first finds nothing: `2100 CENTER & OXFORD ST` is house 2100
 at Center Street and Oxford Street, as there is no 21st Center, and `00 ROY AVE & VIRGINIA ST`
@@ -273,14 +280,16 @@ a looser rule is only used when every stricter one failed:
 | Tier | Example (record → OSM) | Penalty |
 |---|---|---:|
 | exact name | `9TH ST` → Ninth Street | 0 |
-| spacing | `VANDORN ST` → Van Dorn Street; `IVANWAY ST` → Ivan Way | 1 |
+| spacing | `VANDORN ST` → Van Dorn Street; `IVANWAY ST` → Ivan Way; `NIEMANBL` → Nieman Boulevard | 1 |
 | extra type | `UNIVERSITY AVE ST` → University Avenue | 1 |
-| type is part of the name | `PINE LAKE` → Pine Lake Road; `ROSA PARKS` → Rosa Parks Way | 1 |
+| type is part of the name | `PINE LAKE` → Pine Lake Road; `ROSA PARKS` → Rosa Parks Way; `CEDAR DALE` → Cedardale Drive | 1 |
 | words after the type | `S 13TH ST ANTIQUES` → South 13th Street | +1 |
+| a town name after the street | `350 S ABEL IN MILPITAS` → South Abel Street in Milpitas; `950 CLYDE AV SANTA CL` → Clyde Avenue in Santa Clara (a city, town or village in the search box, written in full or cut off after five or more letters, following a street type or `IN`) | +1 |
 | unit number after the name | `2100 DWIGHT 417` → Dwight Way (a name that ends in a number, such as `PIER 2`, matches as written first) | +1 |
 | redaction wildcard | `KAI00 AVE` → Kains Avenue (Berkeley) | 2 |
 | truncated field | `SILVERCREEK VALL` → Silver Creek Valley Road (San Jose) | 2 |
-| typo | `UNVIERSTIY AVE` → University Avenue (1–2 edits, digits must agree) | 3–5 |
+| first word left out | `RANCHO VERDE` → El Rancho Verde Drive; `CINCO DE MAYO` → Via Cinco de Mayo (only when one such name exists in the area; a typo reading competes) | 2 |
+| typo | `UNVIERSTIY AVE` → University Avenue (one edit in a name of 4–6 letters, up to two in 7 or more; digits must agree) | 3–5 |
 
 Within a tier, a record's direction and street type are compared with each candidate:
 
@@ -312,7 +321,20 @@ Bluebill Road, because Blue Bill Drive has no 2700 block.
 Typo tolerance is only used for a name that does not exist in the area at all, and a typo is
 never combined with a changed type. Norfolk has Gordon Street and Gordon Walk but no Gordon
 Avenue, so `900 GORDON AV` is read as Gordon Street, the only one with a 900 block, never as
-"Dordon Street" one letter away.
+"Dordon Street" one letter away. The weaker corrections, two edits (`BUSHESER WY` = Buchser
+Way) and one edit in a four-letter name (`150 KEYS ST` = Keyes Street; `4650 PEAL AV` = Pearl
+Avenue), are accepted only with a house number or a crossing to confirm them, never for a
+street-only record (a four-letter typo needs a real crossing, not a near miss), and they are
+tier C (@sec-output). Names are compared as written as well as in their abbreviated form, so
+`KEYS` (a type word, abbreviated to `KYS` in the keys) is still one edit from Keyes, while
+`SALT CREEK` and Salt Lake, two edits apart as `SALT CRK` and `SALT LK`, are not confused.
+A name read with its first word added back competes with a typo reading, and the number or
+the cross street decides: `6900 BONNET DR` is Bonnot Drive, which has the block, not Blue
+Bonnet Drive.
+
+A record that names a town inside the search box (`WARBURTON & NOBILI IN SANTA CLARA`) is
+placed there even when the street also exists in the city: the usual preference for the city's
+own street is set aside, because the record says where it is.
 
 Every relaxation is recorded as a flag (`direction_added`, `type_missing`, `typo_1`, ...)
 and adds to the penalty; at most 6 is allowed per street.
@@ -331,10 +353,19 @@ dataset. The evidence, in order of preference:
    along the street.
 
 Real house numbers (Saint Paul) look for that exact number first, then a range containing
-it, then the neighbouring numbers (`interpolated`), and only then the block. When there is
-no evidence for the number, the record is placed only if the whole street is short (see
-street-only below) and the street's own known numbers do not contradict it: `1400 MASON ST,
-Cambridge` stays uncoded because Mason Street is numbered 4–18.
+it, then the neighbouring numbers (`interpolated`), and only then the block.
+
+A number just past the known numbers of its street is placed by extrapolation, as commercial
+geocoders do (Esri labels it `StreetAddressExt`): when the block is at most one block beyond
+the highest or lowest number known on the street, and the street is one stretch inside the
+city with numbers known in at least two blocks (so the direction of numbering is known), the
+point is set 100 m beyond the centre of the last known block along the street, or at the
+street's end if that comes first, with a precision of 100 m (flag `extrapolated`, tier C).
+Berkeley's `2500 BOWDITCH ST` lies past the known 2300–2499; `100 MARINA BLVD`, whose street
+has numbers in one block only, stays uncoded. Otherwise, when there is no evidence for the
+number, the record is placed only if the whole street is short (see street-only below) and
+the street's own known numbers do not contradict it: `1400 MASON ST, Cambridge` stays
+uncoded because Mason Street is numbered 4–18.
 
 Nominatim's own search answers with the whole street when it does not know a house number;
 `nomgeo` never does that silently. The evidence is checked before it is used:
@@ -398,10 +429,20 @@ How the point is placed depends on how the two streets approach each other:
   `WARD ST & DERBY ST` in Berkeley (84 m apart) and `KENNEDY AV & NEWTON AV` in San Jose
   (81 m) stay uncoded.
 
-When the exactly-named streets do not meet, one more attempt is made with names one letter
-away (`second_chance`), accepted only if those streets actually cross. The large search box
-makes this necessary: Cambridge's `BRATTLE ST & HAWTHORNE ST` names Hawthorn Street, while
-streets spelled "Hawthorne" exist only in neighbouring towns.
+When the exactly-named streets do not meet, two second chances are tried, each accepted only
+if the streets then really cross (`second_chance`): a street of the same name and another
+road type (`MT ISABEL DR & STEVENS CT`: Stevens Court does not reach Mount Isabel Drive, but
+Stevens Lane crosses it; flag `type_changed`, the same limits as for a changed type above,
+and the crossing must lie in the city), and a name one letter away (Cambridge's `BRATTLE ST
+& HAWTHORNE ST` names Hawthorn Street, while streets spelled "Hawthorne" exist only in
+neighbouring towns). If the two disagree, or the swapped type crosses in several places, the
+record stays uncoded.
+
+**Dead ends.** `X & DEAD END` is placed at the free end of street X: an end of the street's
+geometry that touches no other street, away from the search box's edge. The street must be
+one stretch (in the city when it exists in several places) with exactly one such end; a street
+with none (a loop, or connected at both ends) is treated as a street-only record, and one with
+several stays uncoded. Match type `dead_end`, precision 30 m, flag `at_dead_end`, tier B.
 
 **Street only.** A record with just a street name is placed at the middle of the street,
 but only when the whole street lies within 125 m of that point; long streets stay uncoded.
@@ -455,6 +496,7 @@ Avenue is refused).
 | `between` | the middle of a street between two cross streets (Lincoln) | 50–180 m |
 | `intersection` | where the two streets cross | 10 m |
 | `near_intersection` | the middle of a gap of up to 100 m between the two streets | 15–60 m (up to ~80 m beside a cul-de-sac) |
+| `dead_end` | the free end of the street (`X & DEAD END`) | 30 m |
 | `street` | the middle of a short street (street-only records) | 25–125 m |
 | `poi` | a small named place | 25–150 m |
 | `coordinates` | coordinates typed into the record (only with `accept.coordinates_in_text`) | as typed |
@@ -465,16 +507,18 @@ have a precise crossing, and an exact name a long block.
 
 | Tier | Meaning | Assigned when |
 |---|---|---|
-| `A` | the street(s) as written, or after routine clean-up, placed on direct evidence | everything not in B or C: abbreviations, a missing, moved or extra type or direction, spacing, units and notes removed, the type word read as part of the name, redacted numbers |
-| `B` | a correction or inference that the evidence confirms, or a location near rather than at the evidence | a one-letter typo (`typo_1`, `second_chance`), a changed type (`type_changed`), a redacted or truncated name, words dropped after the type, an alternative or old name, a route number, `dominant_evidence`, `block_of_exact_number`, `between_known_numbers`, `offset_of_intersection`; `near_intersection` and `between` matches |
-| `C` | nothing confirms the reading | `street` and `poi` matches, typed coordinates, a two-letter typo, a number placed on a street without evidence for it (`number_not_found`) or on the first street of an intersection whose streets do not meet, a cross street or extra street ignored |
+| `A` | the street(s) as written, or after routine clean-up, placed on direct evidence | everything not in B or C: abbreviations, a missing, moved or extra type or direction, spacing, units and notes removed, the type word read as part of the name, redacted numbers, `<number> AT <street>`, a town name after the street |
+| `B` | a correction or inference that the evidence confirms, or a location near rather than at the evidence | a one-letter typo (`typo_1`, `second_chance`), a changed type (`type_changed`), a redacted or truncated name, the first word of a name left out, words dropped after the type, an alternative or old name, a route number, `dominant_evidence`, `block_of_exact_number`, `between_known_numbers`, `offset_of_intersection`; `near_intersection`, `between` and `dead_end` matches |
+| `C` | nothing confirms the reading | `street` and `poi` matches, typed coordinates, a two-letter typo or one letter in a four-letter name, a number extrapolated past the known range, a number placed on a street without evidence for it (`number_not_found`) or on the first street of an intersection whose streets do not meet, a cross street or extra street ignored |
 
 Common flags: `direction_added` / `direction_dropped` / `direction_moved`,
 `type_missing` / `type_changed` / `type_unreliable`, `several_types` (the type was picked among
-several by the number or the cross street), `spacing`, `type_as_name`, `typo_1` / `typo_2`,
+several by the number or the cross street), `spacing`, `type_as_name`, `leading_word_added`,
+`typo_1` / `typo_2` / `typo_short` (one letter in a four-letter name),
 `truncated`, `redacted_ordinal` / `redacted_number` / `redacted_name` / `redacted_zero_block`,
 `alt_name` (matched an alternative or old OSM name), `unit_removed`, `city_repeated`,
-`zip_removed`, `outside_city`, `preferred_in_city`, `dominant_evidence`,
+`zip_removed`, `at_removed`, `town_removed`, `outside_city`, `preferred_in_city`,
+`dominant_evidence`, `extrapolated` (a number just past the known range), `at_dead_end`,
 `number_not_found` (a short street was used because the number is not on it),
 `block_of_exact_number`, `between_known_numbers`, `offset_of_intersection` (San Jose
 `VINE ST S & O GOODYEAR ST`, "on Vine St south of Goodyear": precision at least 100 m),
@@ -507,7 +551,7 @@ file can override any key.
 | `precision.dominant_ratio` | 5 | a block in several places on one street: the place in the city with this many times the evidence of all others together wins... |
 | `precision.dominant_minority_max` | 4 | ...if none of the others has more address points than this |
 | `precision.max_precision_m` | 250 | nothing vaguer is accepted |
-| `precision.fuzzy_min_length` | 5 | no typo tolerance for shorter names |
+| `precision.fuzzy_min_length` | 4 | no typo tolerance for shorter names (a four-letter name gets one edit, confirmed by a number or crossing only) |
 | `precision.max_penalty` | 6 | most relaxation allowed per street |
 | `accept.street_only`, `accept.poi` | true | geocode these when unambiguous |
 | `accept.highway_interchange`, `accept.coordinates_in_text` | false | ramps/interchanges and typed coordinates |
@@ -614,20 +658,20 @@ the TIGER house-number ranges added:
 
 | City | Records | Matched, OSM only | Matched, with TIGER | Gained | Matches using TIGER numbers |
 |---|---:|---:|---:|---:|---:|
-| Berkeley | 3,996 | 3,800 (95.1%) | 3,827 (95.8%) | +27 | 100 |
-| Cambridge | 3,519 | 2,968 (84.3%) | 3,004 (85.4%) | +36 | 67 |
-| Lincoln | 40,568 | 25,457 (62.8%) | 34,792 (85.8%) | +9,335 | 11,964 |
-| Louisville | 43,919 | 37,437 (85.2%) | 38,071 (86.7%) | +634 | 1,090 |
-| Norfolk | 12,395 | 10,758 (86.8%) | 11,234 (90.6%) | +476 | 913 |
-| Saint Paul | 43,567 | 25,672 (58.9%) | 40,829 (93.7%) | +15,157 | 25,226 |
-| San Jose | 67,470 | 53,646 (79.5%) | 54,696 (81.1%) | +1,050 | 2,051 |
-| Virginia Beach | 33,763 | 28,942 (85.7%) | 29,531 (87.5%) | +589 | 950 |
-| **All** | **249,197** | **188,680 (75.7%)** | **215,984 (86.7%)** | **+27,304** | **42,361** |
+| Berkeley | 3,996 | 3,813 (95.4%) | 3,836 (96.0%) | +23 | 100 |
+| Cambridge | 3,519 | 3,012 (85.6%) | 3,044 (86.5%) | +32 | 67 |
+| Lincoln | 40,568 | 25,633 (63.2%) | 34,921 (86.1%) | +9,288 | 11,974 |
+| Louisville | 43,919 | 37,658 (85.7%) | 38,231 (87.0%) | +573 | 1,095 |
+| Norfolk | 12,395 | 10,832 (87.4%) | 11,261 (90.9%) | +429 | 916 |
+| Saint Paul | 43,567 | 25,983 (59.6%) | 40,972 (94.0%) | +14,989 | 25,228 |
+| San Jose | 67,470 | 54,423 (80.7%) | 55,426 (82.1%) | +1,003 | 2,071 |
+| Virginia Beach | 33,763 | 29,124 (86.3%) | 29,672 (87.9%) | +548 | 953 |
+| **All** | **249,197** | **190,478 (76.4%)** | **217,363 (87.2%)** | **+26,885** | **42,404** |
 
 TIGER matters most where OSM has few building addresses: the search areas of Lincoln and
 Saint Paul have 37,000 and 58,000 OSM address points, against 320,000 to 395,000 around
 Louisville, Norfolk, San Jose and Virginia Beach. There it lifts the match rate by 23 and
-35 percentage points; elsewhere by 0.7 to 3.8.
+34 percentage points; elsewhere by 0.6 to 3.5.
 
 **What the matches are.** Records by match type:
 
@@ -650,7 +694,7 @@ Median `precision_m` by match type:
 **How close is "near" for two streets that do not touch?** This is the setting with the
 largest effect. San Jose records often name a cul-de-sac with its nearest through street,
 which can be 80–200 m away. Near misses are accepted up to 100 m, each with its own
-precision (gap/2 + 10 m); with a 40 m limit, 1,694 of San Jose's 2,113 near intersections
+precision (gap/2 + 10 m); with a 40 m limit, 1,697 of San Jose's 2,117 near intersections
 would stay uncoded. Near misses by gap:
 
 {{< include _generated/near.md >}}
@@ -699,6 +743,30 @@ street index is built once and then cached.
 | `legacy/` | the earlier two-pass scripts (@sec-changelog) |
 
 # Changelog {#sec-changelog}
+
+## 0.3.0 (2026-10-26)
+
+Rules drawn from a comparison with a commercial geocoder's answers on the same records. On
+the eight example datasets 1,379 more records are matched (86.7% → 87.2%; San Jose 81.1% →
+82.2%), four fewer (two of them typo matches that were wrong), and 95 move by less than a
+block, most of them dead ends and extrapolated numbers placed more exactly.
+
+* Intersections whose exactly-named streets do not meet get a second chance with a street
+  of the same name and another road type, accepted only for a real crossing in the city
+  (`MT ISABEL DR & STEVENS CT` → Stevens Lane); 396 records.
+* `X & DEAD END` is placed at the street's one free end (new match type `dead_end`).
+* A number just past a street's known numbers is extrapolated one block along the street
+  (flag `extrapolated`, tier C); 516 records.
+* Reading the record: `150 AT BLOSSOM HILL` (a block on a street), `S 5TH N & OF KEYES ST`
+  and `ALMA & W OF MONTEREY` (offsets), `350 S ABEL IN MILPITAS` and `950 CLYDE AV SANTA CL`
+  (a town name after the street), `1300 BLK OF AIRPORT`.
+* Names: the first word left out (`RANCHO VERDE` → El Rancho Verde Drive), a type word fused
+  into the name (`CEDAR DALE` → Cedardale Drive, `NIEMANBL` → Nieman Boulevard), two edits
+  in names of 7–8 letters and one edit in 4-letter names when a number or crossing confirms
+  them (tier C). Typo distances are measured word by word, so abbreviated words inside names
+  (`SALT CREEK` / Salt Lake, `SHELBY STATION` / Shelby Point) are no longer confused.
+* Configuration: `fuzzy_min_length` defaults to 4. Existing configurations work unchanged;
+  street indexes are rebuilt once (they now carry the town names in the box).
 
 ## 0.2.0 (2026-10-24)
 

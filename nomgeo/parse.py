@@ -39,6 +39,7 @@ class Record:
     single_alternative: str | None = None  # "ROUGH AND READY RD": try as one street too
     alternative: str | None = None     # the other reading of a redacted first token, tried if this
                                        # one fails: "name" ("00 LOMA") or "number" ("2100 CENTER")
+    dead_end: bool = False             # "X & DEAD END": the dead end of street X
     coords: tuple[float, float] | None = None
 
 
@@ -56,7 +57,7 @@ _UNIT_PATTERNS = [
     r"\(.*?\)", r"\(.*$", r"#\s*[A-Z0-9-]*",
     r"\b(APT|APARTMENT|UNIT|STE|SUITE|SPC|SPACE|RM|ROOM|BLDG|BUILDING|TRLR)\b\.?\s*[A-Z0-9-]*",
     r"\b\d+(ST|ND|RD|TH)\s+(FL|FLR|FLOOR)\b", r"\b(FLOOR|FLR)\s*\d+\b",
-    r"\b(REAR|BLOCK|BLK)\b", r"\s-\s.*$", r"\b[A-Z0-9]{1,3}\s+(FLOOR|FLR)\b",
+    r"\b(REAR|(?:BLOCK|BLK)(?:\s+OF)?)\b", r"\s-\s.*$", r"\b[A-Z0-9]{1,3}\s+(FLOOR|FLR)\b",
 ]
 _UNIT_RE = re.compile("|".join(f"(?:{p})" for p in _UNIT_PATTERNS))
 _DEAD_END = {"DEAD END", "END", "DE00 END", "DEAD-END"}
@@ -184,6 +185,11 @@ def parse_record(raw: str, ds, reading: str | None = None) -> Record:
     text = re.sub(r"(?<!\d)/(?!\d)", " & ", text)      # "A ST/B ST" but not "42 1/2"
     text = re.sub(r"^\s*@\s*", "", text)
     text = re.sub(r"\s@\s?|\s?@\s", " & ", text)
+    # San Jose "150 AT BLOSSOM HILL": block 150 on Blossom Hill Road, not an intersection.
+    m = re.match(r"^\s*(\d+)\s+(?:(?:NB|SB|EB|WB)\s+)?AT\s+(?!.*&)(\S.*)$", text)
+    if m:
+        text = f"{m.group(1)} {m.group(2)}"
+        rec.flags.append("at_removed")
     text = re.sub(r"\s+AT\s+", " & ", text)
     unit_free = _UNIT_RE.sub(" ", text)
     if unit_free.split() != text.split():
@@ -217,11 +223,14 @@ def parse_record(raw: str, ds, reading: str | None = None) -> Record:
             rec.kind, rec.note = HIGHWAY, "direction of travel only"
             return rec
 
-    # San Jose "VINE ST S & O GOODYEAR ST" = on Vine St, south of Goodyear St.
-    m = re.match(r"^(.+?) (N|S|E|W) & O (.+)$", text)
-    if m:
-        text = f"{m.group(1)} & {m.group(3)}"
-        rec.flags.append("offset_of_intersection")
+    # San Jose "VINE ST S & O GOODYEAR ST", "S 5TH ST N & OF KEYES ST", "ALMA & W OF MONTEREY",
+    # "MONTEREY RD N OF LEWIS": on the first street, south (north, west...) of the second.
+    for pat in (r"^(.+?) [NSEW] & OF? (.+)$", r"^(.+?) & [NSEW] OF (.+)$", r"^(.+?) [NSEW] OF (.+)$"):
+        m = re.match(pat, text)
+        if m and "&" not in m.group(2) and re.search(r"[A-Z]", m.group(1)):
+            text = f"{m.group(1)} & {m.group(2)}"
+            rec.flags.append("offset_of_intersection")
+            break
 
     has_and = " AND " in f" {text} "
     if has_and:
@@ -264,6 +273,7 @@ def parse_record(raw: str, ds, reading: str | None = None) -> Record:
     if len(parts) > 1 and any(p in _DEAD_END for p in parts):
         parts = [p for p in parts if p not in _DEAD_END]
         rec.flags.append("dead_end")
+        rec.dead_end = len(parts) == 1
     # Strip house numbers glued to later parts ("8100 DIVEN ARCH AND 8100 NORFOLK CROSSING"),
     # but keep numbered street names ("ROBERT ST & 7 ST E") and a redacted name ("00 ROY AVE").
     parts = [p if (i == 0 and rec.wildcard_first) or _number_is_name(p.split()[1:])

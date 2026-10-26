@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nomgeo"
-version = "0.2.0"
+version = "0.3.0"
 description = "Reference-driven batch geocoding of US police records on a self-hosted Nominatim database"
 readme = "README.md"
 requires-python = ">=3.10"

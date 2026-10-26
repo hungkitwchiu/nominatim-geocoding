@@ -1,9 +1,9 @@
 | City | Streets do not meet | within 100 m (side by side) | 100-150 m | 150-200 m | over 200 m |
 |---|---:|---:|---:|---:|---:|
-| Berkeley | 25 | 6 | 7 | 2 | 10 |
-| Cambridge | 104 | 15 | 14 | 9 | 66 |
-| Lincoln | 476 | 8 | 73 | 18 | 377 |
-| Louisville | 253 | 19 | 33 | 31 | 170 |
-| Saint Paul | 258 | 17 | 41 | 31 | 169 |
-| San Jose | 5,434 | 1,369 | 1,005 | 820 | 2,240 |
-| Virginia Beach | 354 | 64 | 29 | 24 | 237 |
+| Berkeley | 24 | 6 | 7 | 2 | 9 |
+| Cambridge | 89 | 15 | 11 | 7 | 56 |
+| Lincoln | 484 | 9 | 72 | 17 | 386 |
+| Louisville | 199 | 19 | 26 | 19 | 135 |
+| Saint Paul | 256 | 17 | 38 | 29 | 172 |
+| San Jose | 5,225 | 1,325 | 935 | 772 | 2,193 |
+| Virginia Beach | 321 | 55 | 29 | 21 | 216 |
