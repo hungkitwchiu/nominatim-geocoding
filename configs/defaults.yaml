@@ -14,6 +14,10 @@ output_dir: outputs
 # House numbers: "hundred_block" (1300 = the 1300-1399 block; 3550 = 3500-3599),
 # "exact" (real house numbers), or "auto" (decided from the data: >= 80 % x00/x50).
 numbering: auto
+# How a department rounds house numbers to block labels: "floor" (1255 -> 1200, so 1300 means
+# 1300-1399), "nearest" (1255 -> 1300, so 1300 means 1250-1349), or "auto" (decided from the
+# records at the ends of streets; the measurement is written to summary.json).
+block_rounding: auto
 
 area:
   buffer_km: 3               # outer search box around the city boundary when no bbox is given

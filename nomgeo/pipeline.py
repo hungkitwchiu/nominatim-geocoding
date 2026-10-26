@@ -22,7 +22,7 @@ from .area import load_area
 from .cache import KVCache
 from .config import Dataset
 from .db import connect, data_version
-from .locate import Location, locate_dead_end, locate_intersection, locate_number, locate_street
+from .locate import WEAK_FLAGS, Location, locate_dead_end, locate_intersection, locate_number, locate_street
 from .nominatim import NominatimClient, find_poi
 from .normalize import split_street
 from .parse import (ADDRESS, BETWEEN, COORDINATES, INTERSECTION, STREET, Record, parse_record)
@@ -75,6 +75,82 @@ def _auto_numbering(addresses: list[str], ds: Dataset, cache: KVCache, group: st
         mode = detect_numbering([parse_record(a, ds) for a in addresses])
         cache.put(key, mode, group)
     return mode
+
+
+def rounding_from_counts(n_high: int, over_high: int, n_low: int, over_low: int) -> tuple[str, dict]:
+    """Decide the block-rounding convention from the street-end counts.
+
+    `n_high` records lie on streets whose highest building number ends in 50-99, `over_high` of
+    them naming the next hundred; `n_low` / `over_low` the same for streets ending in 00-49 (the
+    baseline).  A department that rounds to the nearest hundred names the next hundred often in
+    the first group and rarely in the second; one that rounds down does so rarely in both.
+    """
+    s_high = over_high / n_high if n_high else 0.0
+    s_low = over_low / n_low if n_low else 0.0
+    used = "nearest" if n_high >= 100 and s_high >= 0.10 and s_high >= 3 * max(s_low, 0.01) else "floor"
+    info = {"used": used, "records_top_ends_50_99": n_high, "next_hundred_share_50_99": round(s_high, 3),
+            "records_top_ends_00_49": n_low, "next_hundred_share_00_49": round(s_low, 3)}
+    if n_high < 100:
+        info["note"] = "too few records on streets with dense address points to decide; floor assumed"
+    return used, info
+
+
+def detect_rounding(index, ds: Dataset, records: list[Record], min_points: int = 15) -> tuple[str, dict]:
+    """Does the department round house numbers down to the hundred or to the nearest hundred?
+
+    Tested at the top ends of streets with at least `min_points` OSM address points: where the
+    highest building number ends in 50-99 (say 1280), nearest rounding produces records in the
+    next hundred ("1300" for 1250-1280); rounding down never does.
+    """
+    by_street: dict[tuple, list[int]] = {}
+    for rec in records:
+        if rec.kind == ADDRESS and rec.number is not None and rec.number % 50 == 0 and rec.streets:
+            by_street.setdefault((rec.streets[0], rec.truncated, rec.wildcard_first), []).append(rec.number)
+    counts = {"high": [0, 0], "low": [0, 0]}
+    streets = 0
+    for (text, truncated, wildcard), numbers in by_street.items():
+        cands = [c for c in resolve(text, index, ds, truncated=truncated, wildcard_first=wildcard)
+                 if not WEAK_FLAGS & set(c.flags)]
+        if not cands:
+            continue
+        best = min(c.penalty for c in cands)
+        stretches = [cl for c in cands if c.penalty == best for cl in index.clusters(c.entry) if cl.in_core]
+        if len(stretches) != 1:
+            continue
+        pts = [p[0] for s in stretches[0].segs for p in index.points.get(index.seg_place[s], ())]
+        if len(pts) < min_points:
+            continue
+        streets += 1
+        hi = max(pts)
+        group = counts["high" if hi % 100 >= 50 else "low"]
+        for n in numbers:
+            block = n if n % 100 == 0 else n - 50
+            group[0] += 1
+            group[1] += block == hi - hi % 100 + 100
+    used, info = rounding_from_counts(*counts["high"], *counts["low"])
+    return used, dict(info, streets_tested=streets)
+
+
+def resolve_rounding(ds: Dataset, index, records: list[Record], mode: str) -> tuple[str, dict]:
+    """The block-rounding convention for a run: the setting, or the detection for "auto"."""
+    setting = ds.block_rounding
+    if mode != "hundred_block":
+        return "floor", {"setting": setting, "used": "floor", "note": "not applicable: exact house numbers"}
+    if setting in ("floor", "nearest"):
+        return setting, {"setting": setting, "used": setting}
+    used, info = detect_rounding(index, ds, records)
+    return used, dict({"setting": "auto"}, **info)
+
+
+def _auto_rounding(addresses: list[str], ds: Dataset, index, mode: str, cache: KVCache, group: str,
+                   use_cache: bool) -> tuple[str, dict]:
+    """resolve_rounding over the whole input, cached with the results like the numbering mode."""
+    key = "rounding:" + hashlib.sha1("\x1e".join(addresses).encode() + f"{group}|{mode}|{ds.block_rounding}".encode()).hexdigest()
+    info = cache.get(key) if use_cache else None
+    if info is None:
+        _, info = resolve_rounding(ds, index, [parse_record(a, ds) for a in addresses], mode)
+        cache.put(key, info, group)
+    return info["used"], info
 
 
 # --------------------------------------------------------------------------- one record
@@ -378,7 +454,8 @@ def run(ds: Dataset, jobs: int = 4, use_cache: bool = True, limit: int | None = 
     mode = ds.numbering
     if mode == "auto":
         mode = _auto_numbering(addresses, ds, rcache, group, use_cache)
-    fp = f"{group}|{mode}"
+    ds.rounding, rounding_info = _auto_rounding(addresses, ds, index, mode, rcache, group, use_cache)
+    fp = f"{group}|{mode}|{ds.rounding}"
     keys = {a: hashlib.sha1(f"{a}\x1f{fp}".encode()).hexdigest() for a in addresses}
     cached = rcache.get_many(list(keys.values())) if use_cache else {}
     results = {a: cached[k] for a, k in keys.items() if k in cached}
@@ -413,7 +490,8 @@ def run(ds: Dataset, jobs: int = 4, use_cache: bool = True, limit: int | None = 
 
     rows = [results[a] for a in addresses]
     summary = write_outputs(ds, rows, {
-        "dataset": ds.name, "records": len(addresses), "numbering": mode, "data_version": dv,
+        "dataset": ds.name, "records": len(addresses), "numbering": mode, "block_rounding": rounding_info,
+        "data_version": dv,
         "config_hash": ds.config_hash, "code": code_fingerprint(), "from_cache": len(addresses) - len(todo),
         "seconds_index": round(t_index, 1), "seconds_geocode": round(t_geo, 1),
         "seconds_total": round(time.time() - t0, 1), "area": area_info})

@@ -13,7 +13,7 @@ from nomgeo.config import PROJECT_DIR, load_dataset
 from nomgeo.db import connect, data_version
 from nomgeo.nominatim import NominatimClient
 from nomgeo.parse import parse_record
-from nomgeo.pipeline import detect_numbering, geocode_record, read_addresses
+from nomgeo.pipeline import detect_numbering, geocode_record, read_addresses, resolve_rounding
 
 CASES = Path(__file__).with_name("regression_cases.csv")
 
@@ -37,8 +37,9 @@ class Regression(unittest.TestCase):
             dv = data_version(conn)
             index, _ = load_area(conn, ds, dv)
             conn.close()
-            mode = ds.numbering if ds.numbering != "auto" else detect_numbering(
-                [parse_record(a, ds) for a in read_addresses(ds)])
+            records = [parse_record(a, ds) for a in read_addresses(ds)]
+            mode = ds.numbering if ds.numbering != "auto" else detect_numbering(records)
+            ds.rounding, _ = resolve_rounding(ds, index, records, mode)
             client = NominatimClient(ds.nominatim_url, KVCache(Path(ds.cache_dir) / "nominatim.sqlite"), dv)
             self.env[name] = (ds, index, mode, client)
         return self.env[name]
@@ -60,6 +61,8 @@ class Regression(unittest.TestCase):
                     self.assertEqual(str(row.get("in_city")), case["expect_in_city"], f"{case['why']} -> {row}")
                 if case.get("expect_tier"):
                     self.assertEqual(row.get("tier"), case["expect_tier"], f"{case['why']} -> {row}")
+                if case.get("expect_detail"):
+                    self.assertIn(case["expect_detail"], row.get("detail") or "", f"{case['why']} -> {row}")
 
 
 if __name__ == "__main__":

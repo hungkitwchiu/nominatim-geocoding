@@ -156,8 +156,11 @@ column without other edits; duplicates are removed automatically.
 
 `nomgeo` understands the usual police conventions by itself:
 
-* hundred-block numbers (`1300` = the 1300–1399 block) and real house numbers, detected per
-  dataset;
+* hundred-block numbers and real house numbers, detected per dataset, and the way the
+  department rounds: most round a house number down to its hundred (`1300` = 1300–1399), some
+  to the nearest hundred (`1300` = 1250–1349). This is measured from the records
+  (`block_rounding: auto`, @sec-config) and reported in `summary.json`; of the eight example
+  departments only Cambridge rounds to the nearest hundred;
 * intersections written with `&`, `/`, `//`, `@`, `AT` or `AND`;
 * `BLOCK` and `BLK`, units and notes (`APT 6`, `# 1`, `(REAR)`, `SUITE`), and travel
   directions on surface streets (`CORNHUSKER HWY EB`);
@@ -341,9 +344,19 @@ and adds to the penalty; at most 6 is allowed per street.
 
 ## Placing the record {#sec-locate}
 
-**House and block numbers.** Most police data use hundred-block numbers (`1300` means the
-1300–1399 block; San Jose's `3550` means the 3500–3599 block), detected automatically per
-dataset. The evidence, in order of preference:
+**House and block numbers.** Most police data use hundred-block numbers, detected
+automatically per dataset. What a label stands for depends on how the department rounds:
+`1300` is the 1300–1399 block where house numbers are rounded down, and 1250–1349 where they
+are rounded to the nearest hundred (1255 becomes `1300`); San Jose's midpoint labels (`3550`)
+mean the 3500–3599 block either way. With `block_rounding: auto` the convention is measured
+at the top ends of streets that have at least 15 OSM address points: where the highest
+building number ends in 50–99 (say 1280), a department that rounds to the nearest hundred
+produces records in the next hundred (`1300` for 1250–1280) and one that rounds down never
+does; streets whose highest number ends in 00–49 give the baseline. The share in each group,
+the counts and the decision go into `summary.json` (`block_rounding`); the decision is
+`nearest` when the first share is at least 10% and three times the baseline on at least 100
+records, otherwise `floor`. For Cambridge the shares are 35% against 4%; for the other
+example departments 0–1% against 0–1%. The evidence for a block, in order of preference:
 
 1. OSM address points on that street within the block: their centre (outliers dropped), and
    their spread as the precision;
@@ -356,11 +369,13 @@ Real house numbers (Saint Paul) look for that exact number first, then a range c
 it, then the neighbouring numbers (`interpolated`), and only then the block.
 
 A number just past the known numbers of its street is placed by extrapolation, as commercial
-geocoders do (Esri labels it `StreetAddressExt`): when the block is at most one block beyond
-the highest or lowest number known on the street, and the street is one stretch inside the
-city with numbers known in at least two blocks (so the direction of numbering is known), the
-point is set 100 m beyond the centre of the last known block along the street, or at the
-street's end if that comes first, with a precision of 100 m (flag `extrapolated`, tier C).
+geocoders do (Esri labels it `StreetAddressExt`): when the block's numbers begin within 199
+of the highest number known on the street, or end within 199 of the lowest (the next block,
+or the one after it when a block is missing from the data), and the street is one stretch
+inside the city with numbers known in at least two blocks (so the direction of numbering is
+known), the point is set 100 m beyond the centre of the last known block along the street,
+or at the street's end if that comes first, with a precision of 100 m (flag `extrapolated`,
+tier C).
 Berkeley's `2500 BOWDITCH ST` lies past the known 2300–2499; `100 MARINA BLVD`, whose street
 has numbers in one block only, stays uncoded. Otherwise, when there is no evidence for the
 number, the record is placed only if the whole street is short (see street-only below) and
@@ -541,6 +556,7 @@ file can override any key.
 | Key | Default | Meaning |
 |---|---:|---|
 | `numbering` | `auto` | `hundred_block`, `exact`, or `auto` (≥ 80% of numbers end in 00 or 50) |
+| `block_rounding` | `auto` | how block labels were rounded: `floor` (`1300` = 1300–1399), `nearest` (`1300` = 1250–1349), or `auto` (measured at street ends, reported in `summary.json`; @sec-locate) |
 | `precision.near_intersection_max_gap_m` | 100 | two streets this close count as meeting (@sec-decisions) |
 | `precision.near_side_by_side_max_m` | 100 | ...unless they run side by side for longer than this |
 | `precision.intersection_merge_m` | 60 | crossing points this close are one junction |
@@ -743,6 +759,19 @@ street index is built once and then cached.
 | `legacy/` | the earlier two-pass scripts (@sec-changelog) |
 
 # Changelog {#sec-changelog}
+
+## 0.4.0 (2026-10-26)
+
+* New dataset setting `block_rounding: floor | nearest | auto` (default `auto`): whether the
+  department rounds house numbers down to the hundred or to the nearest hundred, measured from
+  the records at street ends and reported in `summary.json` (@sec-locate). Of the eight example
+  datasets only Cambridge rounds to the nearest hundred; there 115 more records match, 17
+  become ambiguous or too imprecise, and 426 blocks move (median 96 m): the half-block bias of
+  the old reading. The other datasets are unchanged except for 45 records extrapolated one
+  block below a street's lowest known number, which the extrapolation now reaches on both ends
+  alike.
+* Existing configurations work unchanged; results are recomputed where the measured convention
+  differs from `floor`.
 
 ## 0.3.0 (2026-10-26)
 

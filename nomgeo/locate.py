@@ -175,11 +175,14 @@ def _spatial_groups(pts, link_m: float = 150.0) -> list[list]:
     return groups
 
 
-def _block_range(number: int, mode: str) -> tuple[int, int] | None:
+def _block_range(number: int, mode: str, rounding: str = "floor") -> tuple[int, int] | None:
+    """The numbers a block label stands for: "1300" is 1300-1399 where the department rounds
+    house numbers down, 1250-1349 where it rounds to the nearest hundred; a midpoint label
+    ("3550", San Jose) is the 3500-3599 block either way."""
     if mode == "hundred_block":
         if number % 100 == 0:
-            return number, number + 99
-        if number % 100 == 50:                 # midpoint convention (San Jose "3550")
+            return (number - 50, number + 49) if rounding == "nearest" else (number, number + 99)
+        if number % 100 == 50:
             return number - 50, number + 49
     return None
 
@@ -198,7 +201,7 @@ def _cluster_evidence(index: AreaIndex, cl: Cluster, number: int, mode: str, ds)
     pids = [index.seg_place[s] for s in cl.segs]
     pts = [p for pid in pids for p in index.points.get(pid, ())]
     rngs = [r for pid in pids for r in index.ranges.get(pid, ())]
-    block = _block_range(number, mode)
+    block = _block_range(number, mode, getattr(ds, "rounding", "floor"))
 
     def from_points(points, kind, min_prec, detail, flags):
         out = []
@@ -407,10 +410,12 @@ def _extrapolate(cands: list[Candidate], number: int, mode: str, index: AreaInde
     if len(pts) < 2:
         return None
     lo, hi = min(p[0] for p in pts), max(p[0] for p in pts)
-    reach = 199 if mode == "hundred_block" else 100
-    if hi < number <= hi + reach:
+    block = _block_range(number, mode, getattr(ds, "rounding", "floor"))
+    lo_n, hi_n = block if block else (number, number)
+    reach = 199 if block else 100
+    if hi < lo_n <= hi + reach:
         edge_n = hi
-    elif lo - reach <= number < lo:
+    elif lo - reach <= hi_n < lo:
         edge_n = lo
     else:
         return None

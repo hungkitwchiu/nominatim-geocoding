@@ -76,13 +76,15 @@ class Dataset:
     nominatim_url: str
     cache_dir: Path
     output_dir: Path
+    block_rounding: str = "auto"        # how block labels were rounded: floor, nearest or auto
+    rounding: str = "floor"             # the convention in use for this run (decided by auto)
     legacy: dict = field(default_factory=dict)
     raw: dict = field(default_factory=dict)
 
     @property
     def config_hash(self) -> str:
         """Changes whenever a setting or rule that can change a result changes."""
-        relevant = {k: self.raw.get(k) for k in ("area", "numbering", "parsing", "precision", "accept")}
+        relevant = {k: self.raw.get(k) for k in ("area", "numbering", "block_rounding", "parsing", "precision", "accept")}
         blob = json.dumps(relevant, sort_keys=True, default=str) + self.rules_text
         return hashlib.sha1(blob.encode()).hexdigest()[:12]
 
@@ -124,6 +126,7 @@ def load_dataset(path: str | Path) -> Dataset:
         bbox=bbox,
         buffer_km=float(area.get("buffer_km", 3)),
         numbering=cfg.get("numbering", "auto"),
+        block_rounding=str(cfg.get("block_rounding", "auto")).lower(),
         rules=rules,
         rules_text=rules_text,
         strip_after=list(parsing.get("strip_after") or []),

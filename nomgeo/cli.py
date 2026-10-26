@@ -16,8 +16,19 @@ from .config import PROJECT_DIR, load_dataset
 from .nominatim import NominatimClient
 from .db import connect, data_version
 from .parse import parse_record
-from .pipeline import detect_numbering, geocode_record, read_addresses, reason_group, run
+from .pipeline import detect_numbering, geocode_record, read_addresses, reason_group, resolve_rounding, run
 from .resolve import resolve
+
+
+def rounding_text(info: dict) -> str:
+    """One line for the block-rounding decision, e.g. 'nearest (auto: 35% of records on streets
+    ending in 50-99 name the next hundred; baseline 4%)'."""
+    if "next_hundred_share_50_99" not in info:
+        return f"{info['used']} ({info.get('note') or 'setting ' + info['setting']})"
+    text = (f"{info['used']} (auto: {100 * info['next_hundred_share_50_99']:.0f}% of {info['records_top_ends_50_99']:,} "
+            f"records on streets ending in 50-99 name the next hundred; baseline "
+            f"{100 * info['next_hundred_share_00_49']:.0f}% of {info['records_top_ends_00_49']:,})")
+    return text + (f"; {info['note']}" if info.get("note") else "")
 
 
 def _haversine(lat1, lon1, lat2, lon2) -> float:
@@ -42,6 +53,8 @@ def cmd_run(args) -> None:
               f"{s['from_cache']} from cache, {s['seconds_total']} s "
               f"(index {s['seconds_index']} s, geocode {s['seconds_geocode']} s)")
         print("   match types:", s["match_types"])
+        if s["numbering"] == "hundred_block":
+            print("   block rounding:", rounding_text(s["block_rounding"]))
         print("   unmatched:", dict(list(s["unmatched_reasons"].items())[:8]))
 
 
@@ -52,8 +65,10 @@ def cmd_explain(args) -> None:
     index, info = load_area(conn, ds, dv)
     # The same named-place search as a run (answers come from the cache when available).
     client = NominatimClient(ds.nominatim_url, KVCache(Path(ds.cache_dir) / "nominatim.sqlite"), dv)
-    mode = ds.numbering if ds.numbering != "auto" else detect_numbering(
-        [parse_record(a, ds) for a in read_addresses(ds)[:5000]])
+    records = [parse_record(a, ds) for a in read_addresses(ds)]
+    mode = ds.numbering if ds.numbering != "auto" else detect_numbering(records)
+    ds.rounding, rinfo = resolve_rounding(ds, index, records, mode)
+    print(f"numbering: {mode}; block rounding: {rounding_text(rinfo)}")
     for raw in args.address:
         rec = parse_record(raw, ds)
         print(f"\n{raw}\n  parsed: kind={rec.kind} number={rec.number} streets={rec.streets} "
