@@ -39,7 +39,8 @@ TIER_B_FLAGS = {"typo_1", "type_changed", "redacted", "truncated", "trailing_tex
                 "alt_name", "route_number", "dominant_evidence", "block_of_exact_number",
                 "between_known_numbers", "offset_of_intersection", "leading_word_added", "at_dead_end"}
 TIER_C_FLAGS = {"typo_2", "typo_short", "bare_route_number", "number_not_found", "number_on_first_street",
-                "cross_street_ignored", "extra_street_ignored", "extrapolated"}
+                "cross_street_ignored", "extra_street_ignored", "extrapolated", "long_block",
+                "several_crossings", "variants_merged"}
 # Types that usually name a place rather than a street ("JEFFERSON PARK", "CENTRAL SQ"):
 # never swap them for a different street type.
 PLACE_TYPES = {"PARK", "PLZ", "SQ", "CTR", "MALL", "STA", "CMN", "CMNS", "GRN", "CRSE", "CLB"}
@@ -275,8 +276,16 @@ def geocode_record(raw: str, index, ds: Dataset, mode: str, client) -> dict:
     if loc is not None:
         limit = float(ds.precision.get("max_precision_m", 250))
         if loc.precision_m > limit:
-            return _row(raw, rec, None, f"too imprecise: {loc.match_type} on {' & '.join(loc.names)} "
-                                        f"({loc.precision_m:.0f} m > {limit:.0f} m)", index)
+            # A long block is still the block the record names: a mall, a hospital or a
+            # 600 m block with apartment complexes at both ends, which are also the addresses
+            # with the most records.  Up to `long_block_max_precision_m` it is kept as tier C.
+            long_limit = float(ds.precision.get("long_block_max_precision_m", 350))
+            if loc.match_type == "block" and loc.precision_m <= long_limit:
+                extra = tuple(extra) + ("long_block",)
+            else:
+                shown = long_limit if loc.match_type == "block" else limit
+                return _row(raw, rec, None, f"too imprecise: {loc.match_type} on {' & '.join(loc.names)} "
+                                            f"({loc.precision_m:.0f} m > {shown:.0f} m)", index)
         if not loc.in_core and index.core is not None and not ds.accept.get("outside_core", True):
             return _row(raw, rec, None, "outside the city boundary (not accepted by policy)", index)
     return _row(raw, rec, loc, reason, index, extra)

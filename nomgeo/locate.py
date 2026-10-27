@@ -16,6 +16,7 @@ import shapely
 from shapely.ops import linemerge, nearest_points
 from shapely.strtree import STRtree
 
+from .normalize import split_street
 from .resolve import WEAK_RELAXATIONS, Candidate
 from .streets import MOTORWAY_TYPES, AreaIndex, Cluster
 
@@ -58,6 +59,32 @@ def _merge(locs: list[Location], extra_flags=()) -> Location:
                    flags=flags, in_core=any(l.in_core for l in locs), weight=float(w.sum()))
 
 
+def _extent(locs: list[Location]) -> tuple[float, float, float]:
+    """The middle of the two locations farthest apart, and their distance."""
+    a, b = max(((p, q) for p in locs for q in locs),
+               key=lambda t: math.hypot(t[0].x - t[1].x, t[0].y - t[1].y))
+    return (a.x + b.x) / 2, (a.y + b.y) / 2, math.hypot(a.x - b.x, a.y - b.y)
+
+
+def _merge_extent(locs: list[Location], extra_flags=(), what: str = "place") -> Location:
+    """One location for evidence spread along a street: the middle of the stretch the
+    locations span, with a precision that reaches every one of them (half the span for two;
+    the best member's own precision if that is larger).
+
+    A record names the block, not a point on it, so the middle of the block is the best single
+    point and half its length the honest precision; the weighted centre would sit near the
+    end with the most address points and need the whole span as precision.
+    """
+    mx, my, span = _extent(locs)
+    best = min(locs, key=lambda l: (l.penalty, rank(l), l.precision_m))
+    prec = max(max(math.hypot(l.x - mx, l.y - my) for l in locs), best.precision_m)
+    names = tuple(dict.fromkeys(n for l in locs for n in l.names))
+    flags = tuple(dict.fromkeys(f for l in locs for f in l.flags + tuple(extra_flags)))
+    return replace(best, x=mx, y=my, precision_m=prec, names=names, flags=flags,
+                   in_core=any(l.in_core for l in locs), weight=float(sum(l.weight for l in locs)),
+                   detail=f"{len(locs)} {what}s {span:.0f} m apart; {best.detail}")
+
+
 def _places(group: list[Location], radius: float) -> list[list[Location]]:
     """Locations grouped into places: chains of locations within `radius` of each other."""
     out: list[list[Location]] = []
@@ -93,9 +120,40 @@ def _dominant(group: list[Location], ds, radius: float) -> Location | None:
                                f"{near:.0f} m away ignored")
 
 
+def _variants(group: list[Location], ds) -> Location | None:
+    """A block that fits several directional or type variants of one name, close together.
+
+    "50 ALMADEN BL" has a 0-99 block on North Almaden Boulevard and one on South Almaden
+    Boulevard, both starting at Santa Clara Street 210 m apart; a subdivision's Whispering
+    Hills Circle, Drive, Lane and Way share their 2600 block.  Within `variants_max_span_m` the
+    record is placed at the middle of the places (flag `variants_merged`, tier C); variants
+    farther apart are different places and the record stays ambiguous.
+    """
+    if len({l.names for l in group}) < 2:
+        return None
+    if len({split_street(n).base_key for l in group for n in l.names}) != 1:
+        return None
+    if _extent(group)[2] > float(ds.precision.get("variants_max_span_m", 500)):
+        return None
+    return _merge_extent(group, ("variants_merged",))
+
+
+def _several_crossings(group: list[Location], ds) -> Location | None:
+    """Two streets that cross more than once, close together: a looping street, or a junction
+    of divided roads drawn as separate crossings.  Camden Avenue and Branham Lane meet in
+    three places within 270 m.  Within `crossings_max_span_m` the record is placed at the
+    middle of the crossings with a precision that reaches each of them (flag
+    `several_crossings`, tier C); crossings farther apart stay ambiguous.
+    """
+    if len(group) < 2 or _extent(group)[2] > float(ds.precision.get("crossings_max_span_m", 500)):
+        return None
+    return _merge_extent(group, ("several_crossings",), "crossing")
+
+
 def choose(locs: list[Location], ds, what: str) -> tuple[Location | None, str | None]:
     """Pick the least-relaxed evidence; refuse when it points to different places, unless
-    (for a number) one place on the street holds nearly all of the evidence."""
+    (for a number) one place on the street holds nearly all of the evidence, or the places
+    are variants of one name, or crossings, close enough for a midpoint."""
     if not locs:
         return None, None
     radius = float(ds.precision.get("ambiguity_radius_m", 80))
@@ -113,6 +171,15 @@ def choose(locs: list[Location], ds, what: str) -> tuple[Location | None, str | 
     def places(group):
         return len({(round(l.x / radius), round(l.y / radius)) for l in group})
 
+    def settle(group, extra=()):
+        """One place from a group that is not compact: lopsided evidence on one street,
+        variants of one name close together, or several crossings close together."""
+        if what == "street/number":
+            loc = _dominant(group, ds, radius) or _variants(group, ds)
+        else:
+            loc = _several_crossings(group, ds)
+        return replace(loc, flags=loc.flags + tuple(extra)) if loc else None
+
     tier = best_of(locs)
     if not any(l.in_core for l in tier):
         # The least-relaxed reading lies outside the city.  For a department's own records an
@@ -123,19 +190,27 @@ def choose(locs: list[Location], ds, what: str) -> tuple[Location | None, str | 
             alt = best_of(in_city)
             if compact(alt):
                 return _merge(alt, ("preferred_in_city",)), None
-            main = _dominant(alt, ds, radius) if what == "street/number" else None
+            main = settle(alt, ("preferred_in_city",))
             if main:
-                return replace(main, flags=main.flags + ("preferred_in_city",)), None
+                return main, None
             return None, f"ambiguous {what}: {places(alt)} different places in the city"
     if compact(tier):
         return _merge(tier), None
     core = [l for l in tier if l.in_core]
-    if core and len(core) < len(tier) and compact(core):
-        return _merge(core, ("preferred_in_city",)), None
-    main = _dominant(tier, ds, radius) if what == "street/number" else None
+    judged = tier
+    if core and len(core) < len(tier):
+        # The places in the city decide: Lincoln Avenue's 1000 block has 85 address points in
+        # San Jose and 7 more on Palo Alto's Lincoln Avenue, which must not make it ambiguous.
+        judged = core
+        if compact(core):
+            return _merge(core, ("preferred_in_city",)), None
+        main = settle(core, ("preferred_in_city",))
+        if main:
+            return main, None
+    main = settle(tier)
     if main:
         return main, None
-    return None, f"ambiguous {what}: {places(tier)} different places"
+    return None, f"ambiguous {what}: {places(judged)} different places"
 
 
 # --------------------------------------------------------------------------- numbers
@@ -236,18 +311,16 @@ def _cluster_evidence(index: AreaIndex, cl: Cluster, number: int, mode: str, ds)
         flags = ()
 
     lo_n, hi_n = block
-    inblock = [(x, y) for n, x, y in pts if lo_n <= n <= hi_n]
-    if inblock:
-        return from_points(inblock, "block", 30.0, "{n} address point(s) in " + f"{lo_n}-{hi_n}", flags)
-    hits = []
-    for s, e, step, line, src in rngs:
-        a, b = max(s, lo_n), min(e, hi_n)
-        if a > b:
-            continue
-        x, y = _interp_range(line, s, e, (a + b) / 2)
-        part = line.length * ((b - a) / (e - s) if e > s else 1.0)
-        hits.append((x, y, part, src))
-    if hits:
+
+    def from_ranges():
+        hits = []
+        for s, e, step, line, src in rngs:
+            a, b = max(s, lo_n), min(e, hi_n)
+            if a > b:
+                continue
+            x, y = _interp_range(line, s, e, (a + b) / 2)
+            part = line.length * ((b - a) / (e - s) if e > s else 1.0)
+            hits.append((x, y, part, src))
         out = []
         for g in _spatial_groups(hits):
             cx = sum(h[0] for h in g) / len(g)
@@ -256,6 +329,23 @@ def _cluster_evidence(index: AreaIndex, cl: Cluster, number: int, mode: str, ds)
             src = "tiger" if any(h[3] == "tiger" for h in g) else g[0][3]
             out.append((cx, cy, "block", prec, src, f"range overlap {lo_n}-{hi_n}", flags, 1))
         return out
+
+    inblock = [(x, y) for n, x, y in pts if lo_n <= n <= hi_n]
+    if inblock:
+        out = from_points(inblock, "block", 30.0, "{n} address point(s) in " + f"{lo_n}-{hi_n}", flags)
+        # Numbering that restarts along one named street (Kiely Boulevard has a 500 block in
+        # Santa Clara and another in San Jose): when the address points for the block all lie
+        # outside the city, a range for the block inside the city and far from every point is
+        # a separate place, not a weaker copy of the points, and the in-city preference can
+        # then decide.  Otherwise the points speak for the block and ranges are left out.
+        if not any(index.in_core(o[0], o[1]) for o in out):
+            far = float(ds.precision.get("same_street_merge_m", 700))
+            out += [r for r in from_ranges() if index.in_core(r[0], r[1])
+                    and all(math.hypot(r[0] - o[0], r[1] - o[1]) > far for o in out)]
+        return out
+    ranged = from_ranges()
+    if ranged:
+        return ranged
     # Interpolate between the nearest known numbers below and above the block, when they
     # are on the same stretch (close to each other), not in different towns.
     below = max((p for p in pts if hi_n - 400 <= p[0] < lo_n), default=None)
@@ -271,19 +361,26 @@ def _cluster_evidence(index: AreaIndex, cl: Cluster, number: int, mode: str, ds)
     return []
 
 
+# A lone mis-numbered point this close to the rest of a block's evidence is dropped.
+STRAY_RADIUS_M = 800.0
+
+
 def _merge_same_street(locs: list[Location], within_m: float) -> list[Location]:
     """Merge evidence for one block that is split up on the same street.
 
-    A street interrupted by a park or freeway is several pieces, and a long block can have
-    its few address points at both ends; evidence of the same street and relaxation within
-    `within_m` (block scale) is one place.  Numbering that restarts in another town is
-    kilometres away and stays separate.  A lone stray point on the same stretch (within
-    2 x `within_m`) is dropped when at least four times as many points agree there, but an
-    in-city place is never dropped in favour of one outside the city.
+    A street interrupted by a park or freeway is several pieces, and a long block (San Jose's
+    arterial blocks run 450-700 m) has its address points in the apartment complexes at both
+    ends; evidence of the same street and relaxation within `within_m` is one block, placed at
+    the middle of the stretch it spans with half that span as precision.  Numbering that
+    restarts in another town is kilometres away and stays separate.  A lone stray point on the
+    same stretch (within `STRAY_RADIUS_M`) is dropped when at least four times as many points
+    agree there, but an in-city place is never dropped in favour of one outside the city, nor
+    merged with one: places on either side of the city line stay apart, so that the preference
+    for the city's own place can decide between them.
     """
     out, by_name = [], {}
     for l in locs:
-        by_name.setdefault((l.names, l.penalty, rank(l)), []).append(l)
+        by_name.setdefault((l.names, l.penalty, rank(l), l.in_core), []).append(l)
     for group in by_name.values():
         strays, dominant = set(), set()
         for l in group:
@@ -291,7 +388,7 @@ def _merge_same_street(locs: list[Location], within_m: float) -> list[Location]:
                 continue
             for h in group:
                 if (h is not l and h.weight >= max(4.0, 4 * l.weight) and (h.in_core or not l.in_core)
-                        and math.hypot(h.x - l.x, h.y - l.y) <= 2 * within_m):
+                        and math.hypot(h.x - l.x, h.y - l.y) <= STRAY_RADIUS_M):
                     strays.add(id(l))
                     dominant.add(id(h))
                     break
@@ -309,7 +406,7 @@ def _merge_same_street(locs: list[Location], within_m: float) -> list[Location]:
                         break
                 if changed:
                     break
-        out += [_merge(m) if len(m) > 1 else m[0] for m in merged]
+        out += [_merge_extent(m) if len(m) > 1 else m[0] for m in merged]
     return out
 
 
@@ -326,7 +423,7 @@ def locate_number(cands: list[Candidate], number: int, mode: str, index: AreaInd
                     continue           # a type picked among several needs evidence in the city
                 locs.append(Location(x, y, mt, prec, src, (c.entry.display,), c.flags + fl,
                                      c.penalty, in_core, detail, weight))
-    locs = _merge_same_street(locs, float(ds.precision.get("same_street_merge_m", 400)))
+    locs = _merge_same_street(locs, float(ds.precision.get("same_street_merge_m", 700)))
     names = "/".join(sorted({c.entry.display for c in cands})[:3])
     if locs:
         loc, reason = choose(locs, ds, "street/number")
@@ -336,13 +433,13 @@ def locate_number(cands: list[Candidate], number: int, mode: str, index: AreaInd
         # The evidence lies outside the city.  If the record's street also exists inside the
         # city, the record means that street and its block is just missing from the data:
         # "1715 COMO AV, Saint Paul" is Saint Paul's Como Avenue, not Southeast Como Avenue in
-        # Minneapolis.  (Within 300 m of the in-city street, e.g. the far side of a border
-        # street, the evidence is kept.)
-        in_city = [c for c in cands if c.penalty <= loc.penalty
-                   and any(cl.in_core for cl in index.clusters(c.entry))]
+        # Minneapolis.  Within 300 m of the street's in-city pieces the evidence is kept: the
+        # far side of a border street, or a street that runs on out of the city (Sierra Road
+        # climbs out of San Jose; its 3600 block lies 100 m past the line).
+        in_city = [c for c in cands if c.penalty <= loc.penalty and _city_clusters(index, c.entry)]
         p = shapely.Point(loc.x, loc.y)
         if not in_city or min(index.seg_geom[s].distance(p) for c in in_city
-                              for cl in index.clusters(c.entry) if cl.in_core for s in cl.segs) <= 300:
+                              for cl in _city_clusters(index, c.entry) for s in cl.segs) <= 300:
             return loc, reason
         cands = in_city
         names = "/".join(sorted({c.entry.display for c in cands})[:3])
@@ -366,6 +463,27 @@ def locate_number(cands: list[Candidate], number: int, mode: str, index: AreaInd
     if loc:
         return loc, None
     return None, f"house number not found on {names}" + (f" (street-level fallback: {reason})" if reason else "")
+
+
+def _city_clusters(index: AreaIndex, entry) -> list[Cluster]:
+    """The stretches of a street that run through the city: those whose middle lies inside, and
+    those with a quarter of their length (or 100 m of a street under 2 km) inside.  Sierra Road
+    is one 13 km stretch from the city's grid into the hills with its middle outside, yet 45% of
+    it is the city's; Virginia Beach Boulevard touches Norfolk's line and runs 33 km away from
+    it, so Norfolk's records must not take its numbers."""
+    cache = index.__dict__.setdefault("_city_clusters", {})
+    out = cache.get(entry.key)
+    if out is None:
+        out = []
+        for cl in index.clusters(entry):
+            if cl.in_core or index.core is None:
+                out.append(cl)
+                continue
+            inside = cl.geom.intersection(index.core).length
+            if inside >= 0.25 * cl.geom.length or (inside >= 100.0 and cl.geom.length <= 2000.0):
+                out.append(cl)
+        cache[entry.key] = out
+    return out
 
 
 def _fallback_allowed(index: AreaIndex, cands, number: int) -> bool:

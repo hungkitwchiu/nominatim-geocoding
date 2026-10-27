@@ -168,8 +168,40 @@ def _fuzzy_keys(sn: StreetName, index: AreaIndex, min_len: int):
 
 def resolve(text: str, index: AreaIndex, ds, truncated: bool = False,
             wildcard_first: bool = False) -> list[Candidate]:
-    """All plausible streets for `text`, least relaxed first."""
-    return sorted(_resolve_tiers(text, index, ds, truncated, wildcard_first), key=lambda c: c.penalty)
+    """All plausible streets for `text`, least relaxed first.
+
+    A field cut off at a fixed width (San Jose's 30-character records) is also read by prefix,
+    and that reading competes with any looser reading of the text as written: "W SAN FERNANDO S"
+    is West San Fernando Street cut after the S, not San Fernando Avenue with its direction
+    dropped and type missing; "SILVER CREEK VALL" is Silver Creek Valley Road, not Silver Creek
+    Road with words after the type.  A reading of the whole text that needs less relaxation
+    still wins, and a tie is left to the number or the cross street.
+    """
+    cands = _resolve_tiers(text, index, ds, truncated, wildcard_first)
+    if truncated:
+        cut = _truncated_candidates(text, index, ds)
+        if cut and (not cands or min(c.penalty for c in cut) <= min(c.penalty for c in cands)):
+            best = {c.key: c for c in cands}
+            for c in cut:
+                if c.key not in best or c.penalty < best[c.key].penalty:
+                    best[c.key] = c
+            cands = list(best.values())
+    return sorted(cands, key=lambda c: c.penalty)
+
+
+def _truncated_candidates(text: str, index: AreaIndex, ds) -> list[Candidate]:
+    """Streets whose spelled-out name begins with the cut-off text ("SILVERCREEK VALL",
+    "BIRKHAVEN P", "E ST JOHN S").  The cut may have removed the type or directional, or left
+    the first letter of one, so only conflicts count."""
+    sn = split_street(text, ds.single_letter_suffixes)
+    if not sn.base:
+        return []
+    prefix = prefix_form(text, cut=True)
+    if len(prefix) < 5:
+        return []
+    loose = StreetName(sn.predir, sn.base, frozenset(), None, sn.raw)
+    cands = _score_entries(loose, index.prefix_lookup(prefix), index, "truncated", unreliable=ds.unreliable_types)
+    return [c for c in cands if c.penalty <= int(ds.precision.get("max_penalty", 6))]
 
 
 def resolve_typo(text: str, index: AreaIndex, ds) -> list[Candidate]:
@@ -362,16 +394,12 @@ def _resolve_tiers(text: str, index: AreaIndex, ds, truncated: bool = False,
         if found(cands):
             return out + cands
 
-    # Tier: field cut off at a fixed width (San Jose "SILVERCREEK VALL", "BIRKHAVEN P").
+    # Tier: field cut off at a fixed width (San Jose "SILVERCREEK VALL", "BIRKHAVEN P").  The
+    # same reading also competes with looser readings found above (see resolve()).
     if truncated:
-        prefix = prefix_form(text)
-        if len(prefix) >= 5:
-            keys = index.prefix_lookup(prefix)
-            # The cut may have removed the type or directional, so only conflicts count.
-            loose = StreetName(sn.predir, sn.base, frozenset(), None, sn.raw)
-            cands = score(loose, keys, "truncated")
-            if found(cands):
-                return out + cands
+        cands = _truncated_candidates(text, index, ds)
+        if found(cands):
+            return out + cands
 
     # Typo tolerance, only for a name that does not exist here at all.  If the name exists
     # but was refused above (several types, a conflicting direction), a street one letter

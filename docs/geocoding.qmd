@@ -165,14 +165,18 @@ column without other edits; duplicates are removed automatically.
 * `BLOCK` and `BLK`, units and notes (`APT 6`, `# 1`, `(REAR)`, `SUITE`), and travel
   directions on surface streets (`CORNHUSKER HWY EB`);
 * street-type and direction abbreviations (USPS Publication 28), ordinals (`7TH` = Seventh),
-  and `ST`/`MT`/`DR` at the start of a name (Saint, Mount, Doctor).
+  and `ST`/`MT`/`DR` at the start of a name (Saint, Mount, Doctor), also in sequence
+  (`MT ST HELENA` = Mount Saint Helena) and after a direction (`E ST JOHN ST`);
+* block notation from a records system: `[1700]-[1800] AIRPORT BL` is the 1700 block and
+  `[1300]-[1300] SENTER RD` is 1300. Where the system cuts long fields (`truncation_length`,
+  @sec-config), feed the records in this raw form: `[1300]-[1400] EL PASEO DE SARA` is
+  recognisably cut off at 30 characters, while `1350 EL PASEO DE SARA` is not.
 
 Other conventions should be converted before geocoding, or with a rule file (@sec-config):
 
 ``` default
 "EDWARDS AV + WILLOW ST"     →  "EDWARDS AV & WILLOW ST"      other connectors
 "205X SUMMIT AVE"            →  "2055 SUMMIT AVE"             masked digits
-"[2900]-[3000] ALMADEN RD"   →  "2950 ALMADEN RD"             number ranges
 "1300 9TH ST"                →  "1300 9TH ST, Berkeley, CA"   missing city and state
 ```
 
@@ -222,7 +226,9 @@ displacing the city's own streets:
   `400 34TH ST, Norfolk` is Norfolk's West 34th Street, not Virginia Beach's 34th Street;
 * when the record's street exists inside the city, house-number evidence from a same-named
   street more than 300 m outside the city is not used: `1715 COMO AV, Saint Paul` goes to Como
-  Avenue at the city line, never to Southeast Como Avenue in Minneapolis.
+  Avenue at the city line, never to Southeast Como Avenue in Minneapolis. A street that runs
+  on out of the city is the city's street along its whole length: `3650 SIERRA RD, San Jose`,
+  100 m past the line on a road that climbs out of the city, is placed (flagged `outside_city`).
 
 Incidents just across the city line (mutual aid, unincorporated pockets, the far side of a
 border street) and records for streets that exist only in a neighbouring city (a Virginia
@@ -272,7 +278,8 @@ Input names and OSM names go through the **same** normalisation: case, accents a
 punctuation; the full USPS list of street types (Publication 28, Appendix C1) plus local
 types such as Arch, Quay, Close and Chase; directions (`N` = North); ordinals (`7TH` =
 Seventh, `TWENTY FIRST` = 21st); `ST`/`MT`/`DR` at the start of a name (Saint, Mount,
-Doctor); and `JR`/`SR`, which may be left out (`MLK WAY` = Martin Luther King Jr Way).
+Doctor), in sequence and after a direction (`MT ST HELENA`, `E ST JOHN`); and `JR`/`SR`,
+which may be left out (`MLK WAY` = Martin Luther King Jr Way).
 Each name is split into direction, name, type and trailing direction, and only
 peeled apart when a name remains, so Lincoln's `N ST`, `O ST` and `W ST` stay streets named
 N, O and W.
@@ -290,7 +297,7 @@ a looser rule is only used when every stricter one failed:
 | a town name after the street | `350 S ABEL IN MILPITAS` → South Abel Street in Milpitas; `950 CLYDE AV SANTA CL` → Clyde Avenue in Santa Clara (a city, town or village in the search box, written in full or cut off after five or more letters, following a street type or `IN`) | +1 |
 | unit number after the name | `2100 DWIGHT 417` → Dwight Way (a name that ends in a number, such as `PIER 2`, matches as written first) | +1 |
 | redaction wildcard | `KAI00 AVE` → Kains Avenue (Berkeley) | 2 |
-| truncated field | `SILVERCREEK VALL` → Silver Creek Valley Road (San Jose) | 2 |
+| truncated field | `SILVERCREEK VALL` → Silver Creek Valley Road, `E ST JOHN S` → East Saint John Street (San Jose; this reading also competes with looser readings found earlier, below) | 2 |
 | first word left out | `RANCHO VERDE` → El Rancho Verde Drive; `CINCO DE MAYO` → Via Cinco de Mayo (only when one such name exists in the area; a typo reading competes) | 2 |
 | typo | `UNVIERSTIY AVE` → University Avenue (one edit in a name of 4–6 letters, up to two in 7 or more; digits must agree) | 3–5 |
 
@@ -320,6 +327,14 @@ or truncated name. Those readings rank first, and the number or the cross street
 between them. `VISTAGLEN DR & BERONA WY` is Vista Glen Drive, which meets Berona Way, not
 Vistaglen Court; `72ND & HOLMES PARK` is Holmes Park Road; but `2700 BLUEBILL DR` stays on
 Bluebill Road, because Blue Bill Drive has no 2700 block.
+
+A field cut off at a fixed width (`truncation_length`) is also read by prefix, and that
+reading competes with any looser reading of the text as written: `W SAN FERNANDO S` is West
+San Fernando Street cut after the S, not San Fernando Avenue with its direction dropped and
+type missing, and `SILVER CREEK VALL` is Silver Creek Valley Road, not Silver Creek Road with
+words after the type. A reading of the whole text that needs less relaxation still wins, and a
+tie is left to the number or the cross street. The last token of a cut-off field is the start
+of a word, never a direction, and `ST` after a direction is Saint (`E ST JOHN S`).
 
 Typo tolerance is only used for a name that does not exist in the area at all, and a typo is
 never combined with a changed type. Norfolk has Gordon Street and Gordon Walk but no Gordon
@@ -397,18 +412,33 @@ Nominatim's own search answers with the whole street when it does not know a hou
 * A number with no `addr:street` at all counts only if its street is clearly the nearest
   (within 60 m and at least 10 m closer than any other street), not a corner lot between two.
 * A TIGER range counts only if at least half of it runs within 30 m of a street with the
-  same name as the one Nominatim attached it to; Nominatim falls back to the nearest road
-  when names differ (0.8% of the ranges fail this check in Berkeley, 5.6% in Saint Paul).
+  same name as the one Nominatim attached it to, a direction written differently or left out
+  aside (Kiely Boulevard's 500 block runs along the piece OSM calls South Kiely Boulevard;
+  Saint Paul's "Smith Avenue North" carries "North Smith Avenue" ranges); Nominatim falls back
+  to the nearest road when names differ.
 * Evidence more than 150 m apart is treated as separate places. Long streets that cross town
   lines often restart their numbering: `0 MASSACHUSETTS AVE` has a 0–99 block in Boston,
   Cambridge and Arlington, and the one inside the city wins. Evidence for the same street
-  within 400 m is one block (a long block whose few addresses sit at both ends). A lone
-  stray point on the same stretch is ignored when four times as many points agree there,
-  but an in-city place is never discarded in favour of one outside the city.
+  within 700 m (`same_street_merge_m`) is one block: San Jose's arterial blocks run 450–700 m,
+  with their address points in the apartment complexes at both ends. Such a block is placed
+  at the middle of the stretch its evidence spans, with half that span as precision (`detail`
+  says `2 places 490 m apart`). A lone stray point on the same stretch is ignored when four
+  times as many points agree there, but an in-city place is never discarded in favour of one
+  outside the city. Where a street restarts its numbering in the next town and the address
+  points for the block all lie there, a range for the block inside the city counts as a
+  place of its own (Kiely Boulevard's 500 block in Santa Clara and again in San Jose).
 
 Candidate streets that still point to **different** places make the record ambiguous:
 `700 LITTLE CREEK RD, Norfolk` stays uncoded because both East and West Little Creek Road
-have a 700 block.
+have a 700 block, kilometres apart. Two rules settle the common cases. When the places lie
+both inside and outside the city, the places inside decide (`preferred_in_city`): San Jose's
+`1050 LINCOLN AV` has 92 address points on Lincoln Avenue in the city and 7 more on Palo
+Alto's, which do not make it ambiguous. Variants of one name that the record does not
+distinguish (a direction or type left out) are one place when they lie within 500 m
+(`variants_max_span_m`): `50 ALMADEN BL` has a 0 block on North Almaden Boulevard and on
+South Almaden Boulevard, both starting at Santa Clara Street 210 m apart, and is placed at
+their middle (flag `variants_merged`, tier C); `1350 SAN TOMAS AQUINO`, whose Parkway and
+Road variants lie 1 km apart, stays ambiguous.
 
 On a single street, a block found in places farther apart is decided by the evidence when
 it is lopsided: a mis-numbered address point, or a TIGER range on the wrong piece of the
@@ -416,16 +446,19 @@ street, can put a block in a second place. The place with at least five times th
 points (and ranges) of all other places together wins, if it lies in the city and none of
 the others has more than four (`dominant_ratio`, `dominant_minority_max`; flag
 `dominant_evidence`, and `detail` says what was ignored). Berkeley's `1600 CEDAR ST` has 25
-address points in the 1600 block and one more 866 m away; the 25 win. `100 SEAWALL DR`, one
-point in each of two places, stays ambiguous, and so does a block whose main place lies
-outside the city.
+address points in the 1600 block and one more 866 m away; the 25 win. `100 SEAWALL DR`, with
+one point at each end of 524 m of street, is one long block (tier C, below); a block whose
+main place lies outside the city stays ambiguous.
 
 **Intersections.** The two streets' real geometries are intersected. Crossing points within
 60 m of each other (divided roads, slip lanes) are one junction. If the same two streets cross
-in two places more than 80 m apart (`MARTIN LUTHER KING JR WAY & ADELINE ST` in Berkeley
-cross near Ashby BART and again at 63rd St), the record is ambiguous. Two streets within
-15 m of each other count as meeting there (a junction drawn slightly apart, flag `small_gap`),
-so a second such junction makes the record ambiguous too. Loop streets that OSM stores as
+in two places more than 80 m apart, the record is placed at the middle of the crossings when
+they lie within 500 m of each other (`crossings_max_span_m`), with a precision that reaches
+each of them (flag `several_crossings`, tier C): a looping street that meets the same road
+twice, or San Jose's Camden Avenue and Branham Lane, which meet in three places within 270 m.
+Crossings farther apart (`RALEIGH RD & CHARLOTTE DR`, 726 m) leave the record ambiguous. Two
+streets within 15 m of each other count as meeting there (a junction drawn slightly apart,
+flag `small_gap`), and a second such junction counts as a crossing too. Loop streets that OSM stores as
 closed shapes are treated as their outline, so a crossing is never placed inside the loop.
 Junctions on a motorway are interchanges and not geocoded.
 
@@ -479,8 +512,11 @@ search, so `LEIGHTON ST` cannot match "Leighton Street Car Wash", and on an inte
 place must lie within 150 m of the other street (a "VTA Park and Ride" 16 km from Snell
 Avenue is refused).
 
-**Final checks.** A location with an estimated precision worse than 250 m is not accepted
-(`evidence too imprecise`).
+**Final checks.** A location with an estimated precision worse than 250 m (`max_precision_m`)
+is not accepted (`too imprecise`), except a block of up to 350 m (`long_block_max_precision_m`),
+which is kept as tier C with the flag `long_block`: a mall, a hospital or a 600 m block with
+apartment complexes at both ends is still the block the record names, and such places carry
+more incidents than any others. Nothing vaguer is placed.
 
 # Output {#sec-output}
 
@@ -507,7 +543,7 @@ Avenue is refused).
 |---|---|---|
 | `house` | an OSM address point with that exact number | 15 m |
 | `interpolated` | an exact number within a TIGER/OSM range or between neighbours | 25–40 m |
-| `block` | the centre of a hundred block | 30–120 m |
+| `block` | the middle of a hundred block | 30–350 m (over 250 m only as tier C, `long_block`) |
 | `between` | the middle of a street between two cross streets (Lincoln) | 50–180 m |
 | `intersection` | where the two streets cross | 10 m |
 | `near_intersection` | the middle of a gap of up to 100 m between the two streets | 15–60 m (up to ~80 m beside a cul-de-sac) |
@@ -524,7 +560,7 @@ have a precise crossing, and an exact name a long block.
 |---|---|---|
 | `A` | the street(s) as written, or after routine clean-up, placed on direct evidence | everything not in B or C: abbreviations, a missing, moved or extra type or direction, spacing, units and notes removed, the type word read as part of the name, redacted numbers, `<number> AT <street>`, a town name after the street |
 | `B` | a correction or inference that the evidence confirms, or a location near rather than at the evidence | a one-letter typo (`typo_1`, `second_chance`), a changed type (`type_changed`), a redacted or truncated name, the first word of a name left out, words dropped after the type, an alternative or old name, a route number, `dominant_evidence`, `block_of_exact_number`, `between_known_numbers`, `offset_of_intersection`; `near_intersection`, `between` and `dead_end` matches |
-| `C` | nothing confirms the reading | `street` and `poi` matches, typed coordinates, a two-letter typo or one letter in a four-letter name, a number extrapolated past the known range, a number placed on a street without evidence for it (`number_not_found`) or on the first street of an intersection whose streets do not meet, a cross street or extra street ignored |
+| `C` | nothing confirms the reading, or the place is only roughly known | `street` and `poi` matches, typed coordinates, a two-letter typo or one letter in a four-letter name, a number extrapolated past the known range, a number placed on a street without evidence for it (`number_not_found`) or on the first street of an intersection whose streets do not meet, a cross street or extra street ignored; a block over 250 m (`long_block`), the middle of several crossings (`several_crossings`) or of name variants (`variants_merged`) |
 
 Common flags: `direction_added` / `direction_dropped` / `direction_moved`,
 `type_missing` / `type_changed` / `type_unreliable`, `several_types` (the type was picked among
@@ -538,7 +574,8 @@ several by the number or the cross street), `spacing`, `type_as_name`, `leading_
 `block_of_exact_number`, `between_known_numbers`, `offset_of_intersection` (San Jose
 `VINE ST S & O GOODYEAR ST`, "on Vine St south of Goodyear": precision at least 100 m),
 `second_chance`, `side_by_side` (a near miss beside a short street), `small_gap` (streets
-drawn up to 15 m apart at a junction), `trailing_text`,
+drawn up to 15 m apart at a junction), `several_crossings`, `variants_merged`, `long_block`
+(a block of 250–350 m), `block_notation` (`[1700]-[1800]` in the record), `trailing_text`,
 `poi_side`, `outlier_points_dropped`.
 
 ::: {.callout-tip}
@@ -563,10 +600,13 @@ file can override any key.
 | `precision.ambiguity_radius_m` | 80 | candidate places within this radius are one place |
 | `precision.street_max_radius_m` | 125 | street-only records: the street must fit in this radius |
 | `precision.poi_max_radius_m` | 150 | larger named places are refused |
-| `precision.same_street_merge_m` | 400 | evidence for one block on the same street within this distance is one place |
+| `precision.same_street_merge_m` | 700 | evidence for one block on the same street this far apart is one block, placed at the middle of what it spans |
+| `precision.variants_max_span_m` | 500 | a block on several directional or type variants of one name within this span: their middle (tier C) |
+| `precision.crossings_max_span_m` | 500 | two streets crossing several times within this span: the middle of the crossings (tier C) |
 | `precision.dominant_ratio` | 5 | a block in several places on one street: the place in the city with this many times the evidence of all others together wins... |
 | `precision.dominant_minority_max` | 4 | ...if none of the others has more address points than this |
-| `precision.max_precision_m` | 250 | nothing vaguer is accepted |
+| `precision.max_precision_m` | 250 | nothing vaguer is accepted... |
+| `precision.long_block_max_precision_m` | 350 | ...except a block, kept as tier C up to this precision |
 | `precision.fuzzy_min_length` | 4 | no typo tolerance for shorter names (a four-letter name gets one edit, confirmed by a number or crossing only) |
 | `precision.max_penalty` | 6 | most relaxation allowed per street |
 | `accept.street_only`, `accept.poi` | true | geocode these when unambiguous |
@@ -583,7 +623,7 @@ Dataset-specific parsing options:
 | Option | Used by | Meaning |
 |---|---|---|
 | `strip_after: [";"]` | Lincoln | cut notes appended after a delimiter |
-| `truncation_length: 30` | San Jose | the records management system cuts long fields; allow prefix matches on the last street |
+| `truncation_length: 30` | San Jose | the records management system cuts long fields: the last street is also matched by prefix, and that reading competes with looser readings of the text as written (@sec-resolve). Feed such records as the system wrote them, block notation included, so the cut stays visible |
 | `redacted_first_token: true` | Berkeley | the first token had its last two characters replaced by `00` (`6700 ST` = 67th St, `KAI00` = Kains, `00 DARTMOUTH` = the 0–99 block); where that reads two ways, the other reading is tried when the first finds nothing (`2100 CENTER`, `00 ROY AVE`) |
 | `single_letter_suffixes: true` | San Jose | `OLIVE L` = Olive Lane; off elsewhere because Lincoln has an L Street |
 | `between_hyphen: true` | Lincoln | `26TH & K-N ST` = 26th St between K and N |
@@ -759,6 +799,46 @@ street index is built once and then cached.
 | `legacy/` | the earlier two-pass scripts (@sec-changelog) |
 
 # Changelog {#sec-changelog}
+
+## 0.5.0 (2026-10-26)
+
+Rules drawn from a review of San Jose's unmatched addresses weighted by how often each occurs in
+the incident records: the addresses left uncoded most often were long commercial blocks (malls,
+big-box stores, hospitals) and long arterial blocks whose evidence had been split into two
+places. On the eight example datasets 3,590 more records are matched (87.3% → 88.7%; San Jose
+82.2% → 83.5%, and the newly matched San Jose addresses carry about half of the incidents that
+were uncoded), 84 fewer, and 2,563 move, most of them merged blocks by a median of 40 m. The
+per-record changes are in `outputs/changes_0.4.0_to_0.5.0.csv`.
+
+* A block whose precision is between 250 and 350 m is kept as tier C (flag `long_block`,
+  `long_block_max_precision_m`); 816 records.
+* Evidence for one block on one street within 700 m (`same_street_merge_m`, was 400 m) is one
+  block, placed at the middle of the stretch it spans with half that span as precision, and
+  never merged across the city line; 494 records newly matched, and blocks that were already
+  merged move from the weighted centre of their address points to the middle of the block.
+* Two streets that cross several times within 500 m are placed at the middle of the crossings
+  (flag `several_crossings`, tier C, `crossings_max_span_m`); 1,071 records. Variants of one
+  name that the record did not distinguish, within 500 m, at their middle (flag
+  `variants_merged`, tier C, `variants_max_span_m`); 246 records. When a block's places lie
+  inside and outside the city, the places inside decide.
+* Cut-off fields (San Jose's 30-character records): block notation `[1300]-[1400] EL PASEO DE
+  SARA` is read as written, so the cut stays visible; the prefix reading competes with looser
+  readings of the text as written (`W SAN FERNANDO S` is West San Fernando Street, not San
+  Fernando Avenue), and the last token of a cut-off field is never a direction; 57 records, and
+  38 more when San Jose's records are fed in their raw block notation.
+* Names: `MT ST HELENA` is Mount Saint Helena (leading expansions chain and follow a direction);
+  `AVENUE B` is no longer read as a boulevard called Avenue; a San Jose rule for OSM's
+  "Sebastian Bore Drive".
+* TIGER ranges along a piece whose name differs from the parent's only by a direction written
+  differently or left out are kept (Kiely Boulevard; Saint Paul's "Smith Avenue North"): in
+  Saint Paul 709 exact numbers are newly interpolated and 559 move from block centres to
+  interpolated points (median 134 m). A street that runs on out of the city counts as the
+  city's street when a quarter of its length, or 100 m of a street under 2 km, lies inside
+  (`3650 SIERRA RD`, 100 m past the line); 117 records.
+* No longer matched: 62 records whose number exists only on a same-named street outside the
+  city, now that the city's own part of the street is recognised; 16 made ambiguous by a second
+  TIGER range; 4 blocks whose merged evidence is vaguer than 350 m. Existing configurations work
+  unchanged (the new keys have defaults); street indexes are rebuilt once.
 
 ## 0.4.0 (2026-10-26)
 

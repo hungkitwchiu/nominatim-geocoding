@@ -317,17 +317,40 @@ class AreaIndex:
 
         Nominatim attaches a TIGER line to the nearest road when no street of the same name
         is close, which can put one street's numbers on a cross street.  Keep the range only
-        if at least half of it lies within 30 m of a street sharing a name with the parent.
+        if at least half of it lies within 30 m of a street sharing a name with the parent,
+        a direction written differently or left out aside: Kiely Boulevard's 500 block runs
+        along the piece OSM calls South Kiely Boulevard, and its ranges are still Kiely
+        Boulevard's; Saint Paul's "Smith Avenue North" carries "North Smith Avenue" ranges.
         """
         seg = self.place_to_seg.get(parent)
         if seg is None or line.length == 0:
             return False
         keys = self.seg_keys[seg]
-        near = [i for i in self.tree().query(line.buffer(30.0)) if self.seg_keys[i] & keys]
+        near = [i for i in self.tree().query(line.buffer(30.0))
+                if self.seg_keys[i] & keys or self._same_street(i, seg)]
         if not near:
             return False
         street = shapely.union_all([self.seg_geom[i] for i in near]).buffer(30.0)
         return line.intersection(street).length >= 0.5 * line.length
+
+    def _same_street(self, a: int, b: int) -> bool:
+        """Do two street pieces carry the same name, the direction aside?  Same base name, and
+        either side without a direction or the same one: Kiely Boulevard and South Kiely
+        Boulevard, "Smith Avenue North" and "North Smith Avenue"; never North and South Smith
+        Avenue, which number their blocks alike."""
+        for ka in self.seg_keys[a]:
+            ea = self.entries.get(ka)
+            if ea is None or ea.is_ref:
+                continue
+            da = {d for d in (ea.name.predir, ea.name.postdir) if d}
+            for kb in self.seg_keys[b]:
+                eb = self.entries.get(kb)
+                if eb is None or eb.is_ref or eb.name.base_key != ea.name.base_key:
+                    continue
+                db = {d for d in (eb.name.predir, eb.name.postdir) if d}
+                if not da or not db or da == db:
+                    return True
+        return False
 
     # ------------------------------------------------------------- lookups
     def tree(self) -> STRtree:

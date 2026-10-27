@@ -34,6 +34,9 @@ class Tier(unittest.TestCase):
         self.assertEqual(tier("block", ["typo_2"]), "C")
         self.assertEqual(tier("street", ["number_not_found"]), "C")
         self.assertEqual(tier("block", ["number_on_first_street", "type_changed"]), "C")
+        self.assertEqual(tier("block", ["long_block"]), "C")
+        self.assertEqual(tier("intersection", ["several_crossings"]), "C")
+        self.assertEqual(tier("block", ["variants_merged", "preferred_in_city"]), "C")
 
 
 if __name__ == "__main__":

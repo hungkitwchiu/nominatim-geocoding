@@ -5,7 +5,7 @@ Run with:  .venv/bin/python -m unittest discover -s tests -v
 import unittest
 from types import SimpleNamespace
 
-from nomgeo.normalize import ordinal, parse_osm_ref, parse_route, split_street
+from nomgeo.normalize import ordinal, parse_osm_ref, parse_route, prefix_form, split_street
 from nomgeo.parse import ADDRESS, BETWEEN, COORDINATES, EMPTY, HIGHWAY, INTERSECTION, JUNK, \
     OTHER_PLACE, STREET, parse_record
 
@@ -46,6 +46,24 @@ class SplitStreet(unittest.TestCase):
         self.assertEqual(split_street("KEMPS CL").suffix, frozenset({"CIR", "CLOSE"}))
         self.assertEqual(split_street("OLIVE L", single_letter_suffixes=True).suffix, frozenset({"LN", "LOOP"}))
         self.assertEqual(split_street("OLIVE L").suffix, frozenset())
+
+    def test_leading_expansions_chain_and_follow_a_direction(self):
+        self.same("MT ST HELENA DR", "Mount Saint Helena Drive")
+        self.same("E ST JOHN ST", "East Saint John Street")
+        self.same("MAIN ST", "Main Street")                       # a trailing ST is a type, never Saint
+        self.assertEqual(split_street("MOUNT ST").base_key, split_street("Mount Street").base_key)
+
+    def test_single_letter_type_does_not_swallow_a_lettered_street(self):
+        sn = split_street("AVENUE B", single_letter_suffixes=True)
+        self.assertEqual((sn.base_key, sn.suffix), ("AVE B", frozenset()))
+        self.assertEqual(split_street("OLIVE L", single_letter_suffixes=True).base_key, "OLIVE")
+
+    def test_prefix_form_of_a_cut_off_field(self):
+        self.assertEqual(prefix_form("W SAN FERNANDO S", cut=True), "WESTSANFERNANDOS")
+        self.assertEqual(prefix_form("E ST JOHN S", cut=True), "EASTSAINTJOHNS")
+        self.assertTrue(prefix_form("East Saint John Street").startswith(prefix_form("E ST JOHN S", cut=True)))
+        self.assertTrue(prefix_form("West San Fernando Street").startswith(prefix_form("W SAN FERNANDO S", cut=True)))
+        self.assertEqual(prefix_form("UNIVERSITY AV E"), "UNIVERSITYAVEAST")  # a complete field keeps its direction
 
     def test_ordinals(self):
         self.assertEqual([ordinal(n) for n in (1, 2, 3, 11, 12, 13, 21, 22, 103)],
@@ -160,6 +178,16 @@ class ParseRecord(unittest.TestCase):
             self.assertEqual((r.kind, r.number, r.streets), (ADDRESS, number, [street]), raw)
         r = parse_record("50 ST AT 280, San Jose, CA", ds())          # a street "at" another
         self.assertEqual((r.kind, r.streets), (INTERSECTION, ["50 ST", "280"]))
+
+    def test_block_notation(self):
+        sj = ds(city="San Jose", truncation_length=30, single_letter_suffixes=True)
+        r = parse_record("[1700]-[1800] AIRPORT BL, San Jose, CA", sj)
+        self.assertEqual((r.kind, r.number, r.streets), (ADDRESS, 1750, ["AIRPORT BL"]))
+        self.assertIn("block_notation", r.flags)
+        self.assertFalse(r.truncated)
+        self.assertEqual(parse_record("[1300]-[1300] SENTER RD, San Jose, CA", sj).number, 1300)
+        r = parse_record("[1300]-[1400] EL PASEO DE SARA, San Jose, CA", sj)
+        self.assertEqual((r.number, r.streets, r.truncated), (1350, ["EL PASEO DE SARA"], True))  # 30 characters
 
     def test_dead_end(self):
         r = parse_record("MARTWOOD WY & DEAD END, San Jose, CA", ds())

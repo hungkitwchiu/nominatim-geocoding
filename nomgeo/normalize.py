@@ -112,6 +112,11 @@ SINGLE_LETTER_TYPES = {
     "P": {"PL", "PARK", "PKWY"}, "R": {"RD"}, "S": {"ST"}, "T": {"TER", "TRL"}, "W": {"WAY"},
 }
 
+# Type words that name lettered streets ("AVENUE B", "STREET A"): a single letter after one
+# of these is the street's name, even where single letters are otherwise read as types.
+_LETTERED_STREET_TYPES = {"AVENUE", "AVE", "AV", "STREET", "ST", "ROAD", "RD", "BOULEVARD",
+                          "BLVD", "DRIVE", "DR", "COURT", "CT", "PLACE", "PL", "LANE", "LN"}
+
 SUFFIX_OPTIONS: dict[str, frozenset] = {}
 for _std, _variants in list(_USPS_C1.items()) + list(_EXTRA_TYPES.items()):
     for _v in _variants.split():
@@ -258,16 +263,28 @@ class StreetName:
         return " ".join(p for p in [self.predir or "", self.base_key, sfx, self.postdir or ""] if p)
 
 
-def prefix_form(text: str) -> str:
+def _expand_leading(toks: list[str]) -> list[str]:
+    """'ST CLAIR' -> SAINT CLAIR, 'MT ST HELENA' -> MOUNT SAINT HELENA, also after a leading
+    direction ('E ST JOHN'); never the last token, which is a street type ('MAIN ST')."""
+    toks = list(toks)
+    k = 1 if len(toks) >= 2 and toks[0] in DIRECTIONS else 0
+    while k < len(toks) - 1 and toks[k] in _LEADING_EXPANSIONS:
+        toks[k] = _LEADING_EXPANSIONS[toks[k]]
+        k += 1
+    return toks
+
+
+def prefix_form(text: str, cut: bool = False) -> str:
     """Whole name squashed with abbreviations spelled out, for matching cut-off fields.
 
     'Mount Rushmore Drive' -> 'MOUNTRUSHMOREDRIVE', and the truncated record
-    'MT RUSHMOR' -> 'MOUNTRUSHMOR', which is a prefix of it.
+    'MT RUSHMOR' -> 'MOUNTRUSHMOR', which is a prefix of it.  With `cut` the last token is the
+    start of a word and is never read as a direction: 'W SAN FERNANDO S' -> 'WESTSANFERNANDOS',
+    a prefix of West San Fernando Street, not 'WESTSANFERNANDOSOUTH'.
     """
-    toks = _ordinalise(clean(text).split())
-    if len(toks) >= 2 and toks[0] in _LEADING_EXPANSIONS:
-        toks[0] = _LEADING_EXPANSIONS[toks[0]]
-    return "".join(DIRECTION_WORD.get(t, t) for t in toks)
+    toks = _expand_leading(_ordinalise(clean(text).split()))
+    last = len(toks) - 1
+    return "".join(t if cut and k == last else DIRECTION_WORD.get(t, t) for k, t in enumerate(toks))
 
 
 def suffix_options(token: str, single_letter: bool = False) -> frozenset:
@@ -312,8 +329,7 @@ def _canonical_base(tokens: list[str]) -> tuple[list[str], list[str]]:
     toks = expanded
     # A generational suffix is often left out ("MLK WAY" = Martin Luther King Jr Way).
     toks = [t for i, t in enumerate(toks) if not (i >= 2 and t in ("JR", "SR"))]
-    if len(toks) >= 2 and toks[0] in _LEADING_EXPANSIONS:
-        toks = [_LEADING_EXPANSIONS[toks[0]]] + toks[1:]
+    toks = _expand_leading(toks)
     if len(toks) == 1 and toks[0].isdigit() and int(toks[0]) < 500:
         toks = [ordinal(int(toks[0]))]
     raw = [DIRECTION_WORD.get(t, t) for t in toks]
@@ -342,7 +358,8 @@ def split_street(text_or_tokens, single_letter_suffixes: bool = False) -> Street
             post, j = DIRECTIONS[toks[j - 1]], j - 1
     if j - i >= 2:
         opts = suffix_options(toks[j - 1], single_letter_suffixes)
-        if opts:
+        # A single letter after a type word is the name ("AVENUE B"), not a type.
+        if opts and not (len(toks[j - 1]) == 1 and toks[j - 2] in _LETTERED_STREET_TYPES):
             sfx, j = opts, j - 1
     if j - i >= 2 and toks[i] in DIRECTIONS:
         pre, i = DIRECTIONS[toks[i]], i + 1

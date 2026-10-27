@@ -181,6 +181,16 @@ def parse_record(raw: str, ds, reading: str | None = None) -> Record:
         return rec
 
     text = street.upper()
+    # Block notation from the records system: "[1700]-[1800] AIRPORT BL" is the 1700 block,
+    # read as its midpoint label 1750 (the 1700-1799 block in hundred-block numbering, however
+    # the department rounds); "[1300]-[1300] SENTER RD" is 1300.  Read before cleaning, which
+    # would turn the brackets into spaces and leave a house number followed by a second number.
+    # Fed in this raw form, a record cut off at the field width is recognised as such.
+    m = re.match(r"^\s*\[(\d+)\]\s*-\s*\[(\d+)\]\s*(.*)$", text)
+    if m:
+        lo, hi = int(m.group(1)), int(m.group(2))
+        text = f"{lo if hi <= lo else (lo + hi) // 2} {m.group(3)}"
+        rec.flags.append("block_notation")
     text = re.sub(r"\s*//\s*", " & ", text)
     text = re.sub(r"(?<!\d)/(?!\d)", " & ", text)      # "A ST/B ST" but not "42 1/2"
     text = re.sub(r"^\s*@\s*", "", text)

@@ -1,21 +1,21 @@
 | Reason | Berkeley | Cambridge | Lincoln | Louisville | Norfolk | Saint Paul | San Jose | Virginia Beach | All |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| streets do not meet | 24 | 89 | 407 | 199 | 0 | 256 | 5,225 | 321 | 6,521 |
-| street not found in area | 17 | 55 | 2,135 | 735 | 88 | 295 | 1,495 | 816 | 5,636 |
-| ambiguous (several places fit) | 25 | 55 | 530 | 899 | 433 | 379 | 1,204 | 755 | 4,280 |
-| number outside the street's known numbers | 36 | 20 | 655 | 511 | 170 | 487 | 1,027 | 568 | 3,474 |
+| streets do not meet | 24 | 89 | 403 | 199 | 0 | 256 | 5,196 | 319 | 6,486 |
+| street not found in area | 17 | 55 | 2,135 | 735 | 88 | 295 | 1,446 | 816 | 5,587 |
 | ramp / direction of travel | 9 | 0 | 278 | 1,702 | 7 | 62 | 1,039 | 292 | 3,389 |
-| house number not found on street | 16 | 4 | 472 | 307 | 94 | 671 | 432 | 570 | 2,566 |
+| number outside the street's known numbers | 37 | 20 | 653 | 509 | 170 | 187 | 1,026 | 568 | 3,170 |
+| ambiguous (several places fit) | 13 | 41 | 399 | 516 | 321 | 237 | 628 | 225 | 2,380 |
+| house number not found on street | 16 | 4 | 467 | 306 | 93 | 277 | 432 | 570 | 2,165 |
 | street-only record on a long street | 19 | 107 | 94 | 412 | 169 | 140 | 881 | 0 | 1,822 |
-| evidence too imprecise | 1 | 15 | 126 | 261 | 55 | 18 | 235 | 378 | 1,089 |
-| highway interchange (policy) | 6 | 1 | 154 | 243 | 0 | 111 | 192 | 49 | 756 |
-| number only on a same-named street outside the city | 1 | 2 | 69 | 169 | 9 | 95 | 187 | 212 | 744 |
+| highway interchange (policy) | 6 | 1 | 155 | 243 | 0 | 111 | 196 | 49 | 761 |
+| number only on a same-named street outside the city | 0 | 2 | 76 | 170 | 9 | 35 | 150 | 216 | 658 |
 | placeholder / empty | 2 | 3 | 205 | 6 | 98 | 1 | 45 | 64 | 424 |
+| evidence too imprecise | 0 | 3 | 117 | 64 | 4 | 66 | 43 | 63 | 360 |
 | another city or state | 0 | 0 | 259 | 1 | 0 | 0 | 10 | 1 | 271 |
 | interstate mile marker / interstate only | 0 | 0 | 42 | 179 | 2 | 6 | 0 | 9 | 238 |
 | named place too large | 0 | 17 | 42 | 40 | 2 | 0 | 19 | 40 | 160 |
 | street matched only through a typo or changed type, with nothing to confirm it | 2 | 2 | 41 | 12 | 2 | 74 | 12 | 0 | 145 |
-| 'between' record: a corner not found | 0 | 0 | 93 | 0 | 0 | 0 | 0 | 0 | 93 |
+| 'between' record: a corner not found | 0 | 0 | 86 | 0 | 0 | 0 | 0 | 0 | 86 |
 | on a motorway (policy) | 0 | 2 | 28 | 2 | 2 | 0 | 4 | 1 | 39 |
 | named place too far from the cross street | 0 | 5 | 4 | 0 | 0 | 0 | 3 | 0 | 12 |
 | 2 dead ends on Cahalan Avenue | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 2 |

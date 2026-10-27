@@ -37,10 +37,14 @@ precision:
   street_max_radius_m: 125          # street-only records: whole street within this radius
   poi_max_radius_m: 150             # named places larger than this are not accepted
   number_neighbor_max_gap: 20       # real house numbers: interpolate between neighbours this close
-  same_street_merge_m: 400          # evidence for one block on the same street (long blocks, interrupted streets)
+  same_street_merge_m: 700          # evidence for one block on the same street this far apart is one block (long
+                                    # arterial blocks, interrupted streets), placed at the middle of what it spans
+  variants_max_span_m: 500          # a block on several directional/type variants of one name within this span: their middle (tier C)
+  crossings_max_span_m: 500         # two streets crossing several times within this span: the middle of the crossings (tier C)
   dominant_ratio: 5                 # a block found in several places on one street: a place in the city with
   dominant_minority_max: 4          # this many times the evidence of all others wins, if none has more points than this
-  max_precision_m: 250              # final gate: nothing vaguer than this is accepted
+  max_precision_m: 250              # final gate: nothing vaguer than this is accepted...
+  long_block_max_precision_m: 350   # ...except a block up to this precision, kept as tier C (malls, long arterial blocks)
   fuzzy_min_length: 4               # no typo tolerance for names shorter than this (4: one edit, confirmed by a number or crossing only)
   max_penalty: 6                    # most relaxation allowed per street (see the documentation)
 
