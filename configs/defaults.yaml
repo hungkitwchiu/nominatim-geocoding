@@ -43,8 +43,8 @@ precision:
   crossings_max_span_m: 500         # two streets crossing several times within this span: the middle of the crossings (tier C)
   dominant_ratio: 5                 # a block found in several places on one street: a place in the city with
   dominant_minority_max: 4          # this many times the evidence of all others wins, if none has more points than this
-  max_precision_m: 250              # final gate: nothing vaguer than this is accepted...
-  long_block_max_precision_m: 350   # ...except a block up to this precision, kept as tier C (malls, long arterial blocks)
+  max_precision_m: 350              # final gate: nothing vaguer than this is accepted (room for a long block:
+                                    # a mall, a hospital, a 600 m arterial block with addresses at both ends)
   fuzzy_min_length: 4               # no typo tolerance for names shorter than this (4: one edit, confirmed by a number or crossing only)
   max_penalty: 6                    # most relaxation allowed per street (see the documentation)
 

@@ -89,7 +89,7 @@ def cmd_explain(args) -> None:
 
 def _read_legacy(path: Path, matched: bool) -> dict:
     out = {}
-    if not path or not path.exists():
+    if not path or not path.is_file():
         return out
     with open(path, newline="", encoding="utf-8", errors="replace") as fh:
         for row in csv.DictReader(fh):
@@ -114,6 +114,9 @@ def cmd_compare(args) -> None:
         new = list(csv.DictReader(open(out_dir / "results.csv", newline="", encoding="utf-8")))
         old_m = _read_legacy(PROJECT_DIR / ds.legacy.get("matches", ""), True)
         old_u = _read_legacy(PROJECT_DIR / ds.legacy.get("unmatched", ""), False)
+        if not old_m and not old_u:
+            print(f"{ds.name}: no legacy outputs to compare with (set `legacy:` in the dataset file)")
+            continue
         cats = Counter()
         dist_by_kind: dict[str, list[float]] = {}
         lost = Counter()

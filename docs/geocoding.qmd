@@ -447,7 +447,7 @@ points (and ranges) of all other places together wins, if it lies in the city an
 the others has more than four (`dominant_ratio`, `dominant_minority_max`; flag
 `dominant_evidence`, and `detail` says what was ignored). Berkeley's `1600 CEDAR ST` has 25
 address points in the 1600 block and one more 866 m away; the 25 win. `100 SEAWALL DR`, with
-one point at each end of 524 m of street, is one long block (tier C, below); a block whose
+one point at each end of 524 m of street, is one block (precision 262 m); a block whose
 main place lies outside the city stays ambiguous.
 
 **Intersections.** The two streets' real geometries are intersected. Crossing points within
@@ -512,11 +512,10 @@ search, so `LEIGHTON ST` cannot match "Leighton Street Car Wash", and on an inte
 place must lie within 150 m of the other street (a "VTA Park and Ride" 16 km from Snell
 Avenue is refused).
 
-**Final checks.** A location with an estimated precision worse than 250 m (`max_precision_m`)
-is not accepted (`too imprecise`), except a block of up to 350 m (`long_block_max_precision_m`),
-which is kept as tier C with the flag `long_block`: a mall, a hospital or a 600 m block with
-apartment complexes at both ends is still the block the record names, and such places carry
-more incidents than any others. Nothing vaguer is placed.
+**Final checks.** A location with an estimated precision worse than 350 m (`max_precision_m`)
+is not accepted (`too imprecise`). The limit leaves room for a long block: a mall, a hospital or
+a 600 m block with apartment complexes at both ends is still the block the record names, and
+such places carry more incidents than any others. Nothing vaguer is placed.
 
 # Output {#sec-output}
 
@@ -543,7 +542,7 @@ more incidents than any others. Nothing vaguer is placed.
 |---|---|---|
 | `house` | an OSM address point with that exact number | 15 m |
 | `interpolated` | an exact number within a TIGER/OSM range or between neighbours | 25–40 m |
-| `block` | the middle of a hundred block | 30–350 m (over 250 m only as tier C, `long_block`) |
+| `block` | the middle of a hundred block | 30–350 m |
 | `between` | the middle of a street between two cross streets (Lincoln) | 50–180 m |
 | `intersection` | where the two streets cross | 10 m |
 | `near_intersection` | the middle of a gap of up to 100 m between the two streets | 15–60 m (up to ~80 m beside a cul-de-sac) |
@@ -560,7 +559,7 @@ have a precise crossing, and an exact name a long block.
 |---|---|---|
 | `A` | the street(s) as written, or after routine clean-up, placed on direct evidence | everything not in B or C: abbreviations, a missing, moved or extra type or direction, spacing, units and notes removed, the type word read as part of the name, redacted numbers, `<number> AT <street>`, a town name after the street |
 | `B` | a correction or inference that the evidence confirms, or a location near rather than at the evidence | a one-letter typo (`typo_1`, `second_chance`), a changed type (`type_changed`), a redacted or truncated name, the first word of a name left out, words dropped after the type, an alternative or old name, a route number, `dominant_evidence`, `block_of_exact_number`, `between_known_numbers`, `offset_of_intersection`; `near_intersection`, `between` and `dead_end` matches |
-| `C` | nothing confirms the reading, or the place is only roughly known | `street` and `poi` matches, typed coordinates, a two-letter typo or one letter in a four-letter name, a number extrapolated past the known range, a number placed on a street without evidence for it (`number_not_found`) or on the first street of an intersection whose streets do not meet, a cross street or extra street ignored; a block over 250 m (`long_block`), the middle of several crossings (`several_crossings`) or of name variants (`variants_merged`) |
+| `C` | nothing confirms the reading, or the place is only roughly known | `street` and `poi` matches, typed coordinates, a two-letter typo or one letter in a four-letter name, a number extrapolated past the known range, a number placed on a street without evidence for it (`number_not_found`) or on the first street of an intersection whose streets do not meet, a cross street or extra street ignored; the middle of several crossings (`several_crossings`), of name variants (`variants_merged`) or of two places an exact house number was found in (`number_in_two_places`) |
 
 Common flags: `direction_added` / `direction_dropped` / `direction_moved`,
 `type_missing` / `type_changed` / `type_unreliable`, `several_types` (the type was picked among
@@ -574,8 +573,8 @@ several by the number or the cross street), `spacing`, `type_as_name`, `leading_
 `block_of_exact_number`, `between_known_numbers`, `offset_of_intersection` (San Jose
 `VINE ST S & O GOODYEAR ST`, "on Vine St south of Goodyear": precision at least 100 m),
 `second_chance`, `side_by_side` (a near miss beside a short street), `small_gap` (streets
-drawn up to 15 m apart at a junction), `several_crossings`, `variants_merged`, `long_block`
-(a block of 250–350 m), `block_notation` (`[1700]-[1800]` in the record), `trailing_text`,
+drawn up to 15 m apart at a junction), `several_crossings`, `variants_merged`, `number_in_two_places`,
+`block_notation` (`[1700]-[1800]` in the record), `trailing_text`,
 `poi_side`, `outlier_points_dropped`.
 
 ::: {.callout-tip}
@@ -605,8 +604,7 @@ file can override any key.
 | `precision.crossings_max_span_m` | 500 | two streets crossing several times within this span: the middle of the crossings (tier C) |
 | `precision.dominant_ratio` | 5 | a block in several places on one street: the place in the city with this many times the evidence of all others together wins... |
 | `precision.dominant_minority_max` | 4 | ...if none of the others has more address points than this |
-| `precision.max_precision_m` | 250 | nothing vaguer is accepted... |
-| `precision.long_block_max_precision_m` | 350 | ...except a block, kept as tier C up to this precision |
+| `precision.max_precision_m` | 350 | nothing vaguer is accepted (room for a long block) |
 | `precision.fuzzy_min_length` | 4 | no typo tolerance for shorter names (a four-letter name gets one edit, confirmed by a number or crossing only) |
 | `precision.max_penalty` | 6 | most relaxation allowed per street |
 | `accept.street_only`, `accept.poi` | true | geocode these when unambiguous |
@@ -799,6 +797,33 @@ street index is built once and then cached.
 | `legacy/` | the earlier two-pass scripts (@sec-changelog) |
 
 # Changelog {#sec-changelog}
+
+## 0.6.0 (2026-11-06)
+
+On the eight example datasets 98 more records are matched (221,012 → 221,110; 88.69% → 88.73%),
+none are lost and none move; 1,862 change tier. The per-record changes are in
+`outputs/changes_0.5.0_to_0.6.0.csv`.
+
+* The precision limit is 350 m for every match type (`max_precision_m`, was 250 m with an
+  exception for blocks). The `long_block` flag and `long_block_max_precision_m` are gone: the
+  816 blocks of 250–350 m that carried the flag keep the tier their evidence earns (nearly all
+  A, 44 B, 2 C), and 83 records whose evidence of another kind spans 250–350 m are matched:
+  Lincoln "between" records with far-apart corners (25) and exact numbers found in two places
+  on one street (58, next item).
+* An exact house number found in two places on one street more than 160 m apart (twice
+  `ambiguity_radius_m`) is at one of them, not between them: it is still placed at their middle
+  with a precision that reaches both, now with the flag `number_in_two_places` and tier C;
+  1,293 records (Saint Paul 1,279, Lincoln 14), 1,233 of which were tier A or B before.
+* A cut-off field (`truncation_length`) is judged on the text as recorded: double spaces
+  included, before the dataset's clean-up rules change its length, and a cut that fell in the
+  notes after a `strip_after` delimiter no longer counts. San Jose: `SEBASTIAN BORELLO DR &
+  WHITE A` is White Acres Drive (the rule shortening Borello had hidden the cut). Lincoln: 6
+  intersections written `A  &  B` whose second street was cut are matched (`N ANTELOPE VALLEY
+  PKY  &  VIRGIN` is Virginia Street) and 5 are read more precisely.
+* Berkeley rule: `SHATTUCK SQ` is Shattuck Avenue (8 records).
+* `nomgeo compare` says so when a dataset has no `legacy:` outputs instead of failing.
+* Unused code removed (`AreaIndex.types_near`, `seg_name`, `Record.street_text`) along with
+  compatibility fallbacks for caches that the cache keys already rule out.
 
 ## 0.5.0 (2026-10-26)
 

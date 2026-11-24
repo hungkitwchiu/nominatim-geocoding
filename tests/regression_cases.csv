@@ -60,7 +60,7 @@ berkeley,"2100 DWIGHT 417, BERKELEY, CA",matched,block,Dwight Way,,,A,unit numbe
 berkeley,"DER00 AND MLK, BERKELEY, CA",matched,intersection,Martin Luther King Junior Way,,,A,MLK without JR,
 berkeley,"00 OAK RIDGE, BERKELEY, CA",matched,block,Oak Ridge Road,Oak Street,,A,RIDGE is part of the name; a changed type on Oak Street is a worse reading,
 berkeley,"1600 CEDAR ST, BERKELEY, CA",matched,block,Cedar Street,,1,B,25 address points against 1 stray point 870 m away,
-berkeley,"100 SEAWALL DR, BERKELEY, CA",matched,block,Seawall Drive,,,C,one address point at each end of a 524 m block: one long block (tier C),
+berkeley,"100 SEAWALL DR, BERKELEY, CA",matched,block,Seawall Drive,,,A,one address point at each end of a 524 m block: one block within the 350 m limit,
 berkeley,"1400 ACTON, BERKELEY, CA",unmatched,,,,,,Acton Street and Acton Crescent both have a 1400 block,
 berkeley,"2100 SHATTUCK BLVD, BERKELEY, CA",matched,block,Shattuck Avenue,Shattuck Place,,B,no Shattuck Blvd; only Shattuck Avenue has the number,
 berkeley,"PIEDMONT CIR & DWIGHT WAY, BERKELEY, CA",matched,intersection,Dwight Way,,1,B,no Piedmont Circle; Piedmont Avenue and Crescent meet Dwight Way at one junction,
@@ -96,7 +96,7 @@ saint_paul,"705 CHEROKEEHTS BD, Saint Paul, MN",matched,,Cherokee Heights Boulev
 berkeley,"1300 9TH ST, BERKELEY, CA",matched,block,Ninth Street,,,,Berkeley rounds down: 1300 is the 1300-1399 block,1300-1399
 cambridge,"100 Oxford Ave, Cambridge, MA",matched,block,Oxford Avenue,,,,Cambridge rounds to the nearest hundred (detected): 100 is 50-149,50-149
 san_jose,"750 STORY RD, San Jose, CA",matched,block,Story Road,,,,700 block evidence at two places 325 m apart merged along the street,
-san_jose,"850 BLOSSOM HILL RD, San Jose, CA",matched,block,Blossom Hill Road,,,C,long block (310 m) kept as tier C,
+san_jose,"850 BLOSSOM HILL RD, San Jose, CA",matched,block,Blossom Hill Road,,,A,a 310 m block passes the 350 m limit,
 san_jose,"1750 N 1ST ST, San Jose, CA",matched,block,North 1st Street,,,,1700 block at both ends of a 490 m block: one block,
 san_jose,"1050 LINCOLN AV, San Jose, CA",matched,block,Lincoln Avenue,,1,B,85 points in the city vs 7 on Palo Alto's Lincoln Avenue: the in-city places decide,
 san_jose,"50 ALMADEN BL, San Jose, CA",matched,block,Almaden Boulevard,,,C,N and S Almaden Boulevard both have a 0 block 210 m apart: their middle,
@@ -112,4 +112,6 @@ san_jose,"HELLYER AV & SILVER CREEK VALL, San Jose, CA",matched,intersection,Sil
 san_jose,"E SANTA CLARA ST & E ST JOHN S, San Jose, CA",unmatched,,,,,,"E ST JOHN S[T] resolves, but the streets are parallel",
 san_jose,"[1300]-[1400] EL PASEO DE SARA, San Jose, CA",matched,block,El Paseo De Saratoga,,,,block notation: the 30-character cut is visible,
 san_jose,"[1700]-[1800] AIRPORT BL, San Jose, CA",unmatched,,,,,,the airport's 1701 points spread over 2.9 km: too imprecise,
+san_jose,"2300 AIRPORT BL, San Jose, CA",unmatched,,,,,,a 371 m block: just over the 350 m limit,
+saint_paul,"205 WATER ST W, Saint Paul, MN",matched,interpolated,Water Street,,,C,an exact number in two ranges 617 m apart: their middle as tier C,2 places
 san_jose,"SEBASTIAN BORELLO DR & BOUVERON CT, San Jose, CA",matched,intersection,Sebastian Bore Drive,,,,rule file: OSM misspells the street,

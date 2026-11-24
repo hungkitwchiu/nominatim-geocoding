@@ -276,7 +276,7 @@ def _cluster_evidence(index: AreaIndex, cl: Cluster, number: int, mode: str, ds)
     pids = [index.seg_place[s] for s in cl.segs]
     pts = [p for pid in pids for p in index.points.get(pid, ())]
     rngs = [r for pid in pids for r in index.ranges.get(pid, ())]
-    block = _block_range(number, mode, getattr(ds, "rounding", "floor"))
+    block = _block_range(number, mode, ds.rounding)
 
     def from_points(points, kind, min_prec, detail, flags):
         out = []
@@ -291,7 +291,7 @@ def _cluster_evidence(index: AreaIndex, cl: Cluster, number: int, mode: str, ds)
         if same:
             return from_points(same, "house", 15.0, "{n} address point(s)", ())
         hits = [(*_interp_range(line, s, e, number), src, s, e) for s, e, step, line, src in rngs
-                if s <= number <= e and (number - s) % (step or 1) == 0]
+                if s <= number <= e and (number - s) % step == 0]
         if hits:
             return [(g[0][0], g[0][1], "interpolated", 30.0, g[0][2], f"range {g[0][3]}-{g[0][4]}", (), 1)
                     for g in _spatial_groups(hits)]
@@ -365,7 +365,7 @@ def _cluster_evidence(index: AreaIndex, cl: Cluster, number: int, mode: str, ds)
 STRAY_RADIUS_M = 800.0
 
 
-def _merge_same_street(locs: list[Location], within_m: float) -> list[Location]:
+def _merge_same_street(locs: list[Location], within_m: float, radius: float) -> list[Location]:
     """Merge evidence for one block that is split up on the same street.
 
     A street interrupted by a park or freeway is several pieces, and a long block (San Jose's
@@ -376,7 +376,9 @@ def _merge_same_street(locs: list[Location], within_m: float) -> list[Location]:
     same stretch (within `STRAY_RADIUS_M`) is dropped when at least four times as many points
     agree there, but an in-city place is never dropped in favour of one outside the city, nor
     merged with one: places on either side of the city line stay apart, so that the preference
-    for the city's own place can decide between them.
+    for the city's own place can decide between them.  An exact house number found in two
+    places farther apart than one place (twice `radius`) is at one of them, not between them:
+    it keeps the middle and gets the flag `number_in_two_places` (tier C).
     """
     out, by_name = [], {}
     for l in locs:
@@ -406,7 +408,9 @@ def _merge_same_street(locs: list[Location], within_m: float) -> list[Location]:
                         break
                 if changed:
                     break
-        out += [_merge_extent(m) if len(m) > 1 else m[0] for m in merged]
+        for m in merged:
+            two = len(m) > 1 and m[0].match_type in ("house", "interpolated") and _extent(m)[2] > 2 * radius
+            out.append(_merge_extent(m, ("number_in_two_places",) if two else ()) if len(m) > 1 else m[0])
     return out
 
 
@@ -423,7 +427,8 @@ def locate_number(cands: list[Candidate], number: int, mode: str, index: AreaInd
                     continue           # a type picked among several needs evidence in the city
                 locs.append(Location(x, y, mt, prec, src, (c.entry.display,), c.flags + fl,
                                      c.penalty, in_core, detail, weight))
-    locs = _merge_same_street(locs, float(ds.precision.get("same_street_merge_m", 700)))
+    locs = _merge_same_street(locs, float(ds.precision.get("same_street_merge_m", 700)),
+                              float(ds.precision.get("ambiguity_radius_m", 80)))
     names = "/".join(sorted({c.entry.display for c in cands})[:3])
     if locs:
         loc, reason = choose(locs, ds, "street/number")
@@ -528,7 +533,7 @@ def _extrapolate(cands: list[Candidate], number: int, mode: str, index: AreaInde
     if len(pts) < 2:
         return None
     lo, hi = min(p[0] for p in pts), max(p[0] for p in pts)
-    block = _block_range(number, mode, getattr(ds, "rounding", "floor"))
+    block = _block_range(number, mode, ds.rounding)
     lo_n, hi_n = block if block else (number, number)
     reach = 199 if block else 100
     if hi < lo_n <= hi + reach:

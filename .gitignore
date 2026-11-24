@@ -3,6 +3,7 @@
 *_geocoded_matches.csv
 *_geocoded_unmatched.csv
 *_Esri_geocoded.csv
+*token.txt
 data/
 outputs/
 

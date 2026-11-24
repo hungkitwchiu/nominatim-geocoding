@@ -94,10 +94,9 @@ def parse_housenumbers(text: str) -> list[int]:
 
 
 class AreaIndex:
-    def __init__(self, bbox, core_wkb: bytes | None, data_version: str):
+    def __init__(self, bbox, core_wkb: bytes | None):
         left, top, right, bottom = bbox
         self.bbox = bbox
-        self.data_version = data_version
         self.proj = Projection((left + right) / 2, (top + bottom) / 2)
         self.core = self.proj.geom(wkb.loads(core_wkb)) if core_wkb else None
         if self.core is not None:
@@ -105,7 +104,6 @@ class AreaIndex:
         self.seg_place: list[int] = []
         self.seg_type: list[str] = []
         self.seg_geom: list = []
-        self.seg_name: list[str] = []
         self.seg_keys: list[set[str]] = []
         self.dropped_points = 0
         self.dropped_tiger = 0
@@ -127,8 +125,8 @@ class AreaIndex:
 
     # ------------------------------------------------------------------ build
     @classmethod
-    def build(cls, conn, bbox, core_wkb: bytes | None, data_version: str) -> "AreaIndex":
-        idx = cls(bbox, core_wkb, data_version)
+    def build(cls, conn, bbox, core_wkb: bytes | None) -> "AreaIndex":
+        idx = cls(bbox, core_wkb)
         left, top, right, bottom = bbox
         with conn.cursor() as cur:
             cur.execute(
@@ -150,7 +148,6 @@ class AreaIndex:
             idx.seg_place.append(place_id)
             idx.seg_type.append(typ)
             idx.seg_geom.append(g)
-            idx.seg_name.append(names.get("name") or names.get("ref") or "")
             idx.seg_keys.append(set())
             idx.place_to_seg[place_id] = seg
             for k in NAME_KEYS:
@@ -377,10 +374,6 @@ class AreaIndex:
 
     def in_core(self, x: float, y: float) -> bool:
         return True if self.core is None else bool(self.core.contains(shapely.Point(x, y)))
-
-    def types_near(self, x: float, y: float, dist: float = 15.0) -> set[str]:
-        hits = self.tree().query(shapely.Point(x, y).buffer(dist))
-        return {self.seg_type[i] for i in hits}
 
     def clusters(self, entry: StreetEntry) -> list[Cluster]:
         """Split an entry's pieces into physically separate streets (same name, other town)."""

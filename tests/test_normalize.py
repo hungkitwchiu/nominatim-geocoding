@@ -2,6 +2,7 @@
 
 Run with:  .venv/bin/python -m unittest discover -s tests -v
 """
+import re
 import unittest
 from types import SimpleNamespace
 
@@ -188,6 +189,20 @@ class ParseRecord(unittest.TestCase):
         self.assertEqual(parse_record("[1300]-[1300] SENTER RD, San Jose, CA", sj).number, 1300)
         r = parse_record("[1300]-[1400] EL PASEO DE SARA, San Jose, CA", sj)
         self.assertEqual((r.number, r.streets, r.truncated), (1350, ["EL PASEO DE SARA"], True))  # 30 characters
+
+    def test_cut_off_field_is_judged_as_recorded(self):
+        # A clean-up rule shortens the name after the field width was already used up...
+        rule = (re.compile(r"(?<![A-Za-z0-9])SEBASTIAN BORELLO(?![A-Za-z0-9])", re.IGNORECASE), " SEBASTIAN BORE ")
+        sj = ds(truncation_length=30, single_letter_suffixes=True, rules=[rule])
+        r = parse_record("SEBASTIAN BORELLO DR & WHITE A, San Jose, CA", sj)      # 30 characters as recorded
+        self.assertEqual((r.streets, r.truncated), (["SEBASTIAN BORE DR", "WHITE A"], True))
+        # ... and a cut that fell in the notes after ";" leaves the street intact.
+        lin = ds(state="NE", truncation_length=32, strip_after=[";"])
+        r = parse_record("15TH & PEACH;15-16,MULBERRY ALLE, Lincoln, NE", lin)    # 32 characters
+        self.assertEqual((r.streets, r.truncated), (["15TH", "PEACH"], False))
+        # Double spaces used up field width too: 32 characters as recorded, 30 once collapsed.
+        r = parse_record("N ANTELOPE VALLEY PKY  &  VIRGIN, Lincoln, NE", lin)
+        self.assertEqual((r.streets, r.truncated), (["N ANTELOPE VALLEY PKY", "VIRGIN"], True))
 
     def test_dead_end(self):
         r = parse_record("MARTWOOD WY & DEAD END, San Jose, CA", ds())

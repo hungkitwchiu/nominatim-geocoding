@@ -5,4 +5,4 @@ house-number ranges stored in Nominatim's own tables, and labels every result
 with what was matched and how precise it is.  See docs/geocoding.qmd.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

@@ -94,7 +94,7 @@ def load_area(conn, ds, data_version: str, use_cache: bool = True) -> tuple[Area
             pass
         info["cache"] = "hit"
     else:
-        index = AreaIndex.build(conn, bbox, core_wkb, data_version)
+        index = AreaIndex.build(conn, bbox, core_wkb)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as fh:
             pickle.dump(index, fh, protocol=pickle.HIGHEST_PROTOCOL)
@@ -105,7 +105,7 @@ def load_area(conn, ds, data_version: str, use_cache: bool = True) -> tuple[Area
                 number_ranges=sum(len(v) for v in index.ranges.values()),
                 tiger_ranges=sum(1 for v in index.ranges.values() for r in v if r[4] == "tiger"),
                 dropped_points=index.dropped_points,
-                dropped_tiger_ranges=getattr(index, "dropped_tiger", 0))
+                dropped_tiger_ranges=index.dropped_tiger)
     return index, info
 
 

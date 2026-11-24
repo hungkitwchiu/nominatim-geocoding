@@ -359,7 +359,7 @@ def _resolve_tiers(text: str, index: AreaIndex, ds, truncated: bool = False,
 
     # Tier: a town name after the street ("350 S ABEL IN MILPITAS", "950 CLYDE AV SANTA CL"):
     # a town in the box, written in full or cut off after 5+ letters, after a type or "IN".
-    towns = getattr(index, "towns", ())
+    towns = index.towns
     if towns and not whole_text_only and len(toks) >= 3:
         for k in (2, 1):
             if len(toks) <= k + 1:
@@ -415,7 +415,7 @@ def _resolve_tiers(text: str, index: AreaIndex, ds, truncated: bool = False,
     # "CINCO DE MAYO" = "Via Cinco de Mayo"), when exactly one such name exists in the area.
     # A typo reading competes, and the number or the cross street decides ("6900 BONNET DR"
     # is Bonnot Drive, which has the block, not Blue Bonnet Drive).
-    bases = getattr(index, "by_tail", {}).get(sn.base_key, set())
+    bases = index.by_tail.get(sn.base_key, set())
     if not whole_text_only and len(bases) == 1:
         base = next(iter(bases))
         longer = StreetName(sn.predir, tuple(base.split()), sn.suffix, sn.postdir, sn.raw)

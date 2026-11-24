@@ -33,11 +33,6 @@ class KVCache:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.execute("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT, t REAL, g TEXT)")
-            if "g" not in {r[1] for r in self._conn.execute("PRAGMA table_info(kv)")}:
-                try:
-                    self._conn.execute("ALTER TABLE kv ADD COLUMN g TEXT")   # caches made before groups
-                except sqlite3.OperationalError:
-                    pass                                                   # another process added it
             self._conn.execute("CREATE INDEX IF NOT EXISTS kv_g ON kv (g)")
             self._conn.execute("CREATE TABLE IF NOT EXISTS groups (g TEXT PRIMARY KEY, t REAL)")
             self._pid = os.getpid()

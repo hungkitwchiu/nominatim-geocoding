@@ -2,6 +2,7 @@ match,replace,notes
 # Carried over from name_cleanup_rules.csv (Berkeley rows). Generic abbreviations are handled in code.
 JNR,JR,Berkeley name
 M L KING JR,MARTIN LUTHER KING JR,Berkeley name
+SHATTUCK SQ,SHATTUCK AVE,Berkeley name
 MARTING LUTHER KING,MARTIN LUTHER KING,Berkeley typo
 telegrapgh,TELEGRAPH,Berkeley typo
 SPINANNAKER,SPINNAKER,Berkeley typo

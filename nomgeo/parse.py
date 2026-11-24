@@ -26,9 +26,7 @@ COORDINATES = "coordinates"    # lat/lon typed into the address field
 @dataclass
 class Record:
     raw: str
-    street_text: str = ""
     city: str | None = None
-    state: str | None = None
     kind: str = EMPTY
     number: int | None = None
     streets: list[str] = field(default_factory=list)
@@ -145,9 +143,7 @@ def parse_record(raw: str, ds, reading: str | None = None) -> Record:
     0-99 block, and "number" reads "2100" as house 2100 instead of the ordinal "21ST".
     """
     rec = Record(raw=raw)
-    street, rec.city, rec.state = _split_city_state(raw or "", ds.state)
-    if rec.state:
-        rec.state = rec.state.strip().upper()
+    street, rec.city, _ = _split_city_state(raw or "", ds.state)
 
     pieces = [p.strip().upper() for p in street.split(",")]
     # Extra comma-separated pieces repeating the city ("2400 PIEDMONT, BERKELEY, BERKELEY, CA").
@@ -162,6 +158,11 @@ def parse_record(raw: str, ds, reading: str | None = None) -> Record:
         rec.kind, rec.note = OTHER_PLACE, "names another place"
         return rec
     street = " ".join(pieces)
+    # A cut-off field is judged on the text as recorded: the records system counted every
+    # character, double spaces included ("N ANTELOPE VALLEY PKY  &  VIRGIN" is 32 and cut); a
+    # clean-up rule may lengthen or shorten a name ("SEBASTIAN BORELLO" -> "SEBASTIAN BORE");
+    # and a cut that fell in the notes after a strip_after delimiter leaves the street intact.
+    full_width = bool(ds.truncation_length) and len(street) >= ds.truncation_length - 1
 
     # A ZIP code run into the name ("MARTIN LUTHER KING JR94709 WAY").
     unzipped = re.sub(r"(?<=[A-Z]{2})\d{5}(?:-\d{4})?\b", " ", street)
@@ -206,8 +207,7 @@ def parse_record(raw: str, ds, reading: str | None = None) -> Record:
         rec.flags.append("unit_removed")
     between = _between(unit_free) if ds.between_hyphen else None
     text = _join_ordinals(clean(unit_free))
-    rec.street_text = text
-    rec.truncated = bool(ds.truncation_length) and len(street) >= ds.truncation_length - 1
+    rec.truncated = full_width and "note_removed" not in rec.flags
 
     if not text or re.fullmatch(r"[\d\s&]*", text):
         rec.kind, rec.note = EMPTY, "no street name"
