@@ -3,6 +3,8 @@
 *_geocoded_matches.csv
 *_geocoded_unmatched.csv
 *_Esri_geocoded.csv
+SJ_address_raw.csv
+SJ_unmatched_by_frequency.csv
 *token.txt
 data/
 outputs/
